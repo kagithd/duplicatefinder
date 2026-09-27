@@ -22,7 +22,7 @@ function mount(get, post = async () => { throw new Error("unexpected mutation") 
     const code = babel.transformSync(sfc.script.content, { babelrc: false, configFile: false, plugins: ['@babel/plugin-transform-modules-commonjs'] }).code
     const module = { exports: {} }
     const fakeRequire = name => {
-        if (name === './components/ReviewMissingFindings.vue' || name === './components/ReviewEvidenceSearch.vue' || name === './ReviewShares.vue' || name === './components/ReviewShares.vue' || name === './components/ReviewChecks.vue' || name === './components/ReviewPlan.vue' || name === './components/ReviewPreview.vue' || name === './ReviewPreview.vue') {
+        if (name === './components/ReviewComparison.vue' || name === './components/ReviewMissingFindings.vue' || name === './components/ReviewEvidenceSearch.vue' || name === './ReviewShares.vue' || name === './components/ReviewShares.vue' || name === './components/ReviewChecks.vue' || name === './components/ReviewPlan.vue' || name === './components/ReviewPreview.vue' || name === './ReviewPreview.vue') {
             const child = compiler.parseComponent(fs.readFileSync(path.join(__dirname, '../../src', name.startsWith('./components/') ? name : './components/' + name.slice(2)), 'utf8'))
             const childCode = babel.transformSync(child.script.content, { babelrc: false, configFile: false, plugins: ['@babel/plugin-transform-modules-commonjs'] }).code
             const childMod = { exports: {} }
@@ -443,4 +443,14 @@ test('finding origin remains visible while paging the same group and clears on g
  await vm.loadMembers(0);await tick();
  assert.equal(vm.openedReference,77);
  vm.selectGroup(hashA);await tick();assert.equal(vm.openedReference,null);dispose(vm);
+});
+
+test('comparison selection survives group navigation without changing plan or check drafts', async()=>{
+ const vm=mount(async()=>({data:{items:[],nextCursor:null}}));await tick();
+ vm.selectedHash=hashA;vm.members=[{id:9,indexOwner:'alice',indexPath:'/alice/files/a.png'}];
+ vm.$set(vm.evidence,9,{entry:{id:7,record:{after:{owner:'alice',path:'/alice/files/a.png'},report:{status:'passed',frames_decoded:1}}}});
+ await tick();const button=vm.$el.querySelector('[data-compare-add]');assert.ok(button);button.click();await tick();
+ assert.equal(vm.$refs.comparison.items[0].evidenceId,7);
+ vm.selectGroup(hashB);await tick();assert.equal(vm.$refs.comparison.items.length,1);
+ assert.equal(vm.$refs.checks.selection.length,0);assert.equal(vm.$refs.plan.decisions.length,0);dispose(vm);
 });

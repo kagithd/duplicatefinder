@@ -79,9 +79,7 @@
 					<ol v-else class="review__member-list">
 						<li v-for="member in members" :key="member.id" class="review__member">
 							<h3>{{ member.indexOwner || t('duplicatefinder', 'Unknown index owner') }}</h3>
-							<p class="review__path">
-								{{ member.indexPath }}
-							</p>
+							<p class="review__path">{{ member.indexPath }}</p>
 							<p>{{ member.availability === 'available' ? t('duplicatefinder', 'Metadata accessible') : t('duplicatefinder', 'Unavailable — index reference retained') }} · {{ t('duplicatefinder', 'Integrity: Not checked') }}</p>
 							<p>{{ formatSize(member.size) }} · {{ t('duplicatefinder', 'Modified') }}: {{ formatTime(member.mtime) }}</p>
 							<button type="button"
@@ -112,7 +110,8 @@
 										{{ reportOf(evidence[member.id].entry).decoder.version }}
 									</p>
 									<p>{{ t('duplicatefinder', 'Visual content has not been assessed.') }}</p>
-									<ReviewPreview v-if="reportOf(evidence[member.id].entry).status === 'passed'"
+									<button v-if="reportOf(evidence[member.id].entry).status === 'passed'" type="button" data-compare-add @click="$refs.comparison.choose(member, evidence[member.id].entry)">{{ t('duplicatefinder', 'Add to image comparison') }}</button>
+                                    <ReviewPreview v-if="reportOf(evidence[member.id].entry).status === 'passed'"
 										:key="member.id + ':' + evidence[member.id].entry.id"
 										:app-ref="member.id"
 										:evidence-id="evidence[member.id].entry.id" />
@@ -164,6 +163,7 @@
 				</template>
 			</section>
 		</div>
+		<ReviewComparison ref="comparison" />
 		<ReviewChecks ref="checks" :visible-refs="members.map(member => member.id)" @load-evidence="loadEvidence({ id: $event })" />
 		<p v-if="referenceLoading" role="status">{{ t('duplicatefinder', 'Loading current reference') }}</p>
         <p v-if="referenceError" role="alert">{{ referenceError }}</p>
@@ -175,6 +175,7 @@
 </template>
 
 <script>
+import ReviewComparison from './components/ReviewComparison.vue'
 import ReviewMissingFindings from './components/ReviewMissingFindings.vue'
 import ReviewEvidenceSearch from './components/ReviewEvidenceSearch.vue'
 import ReviewShares from './components/ReviewShares.vue'
@@ -186,7 +187,7 @@ import { generateUrl } from '@nextcloud/router'
 
 export default {
 	name: 'Review',
-	components: { ReviewMissingFindings, ReviewEvidenceSearch, ReviewPlan, ReviewPreview, ReviewChecks, ReviewShares },
+	components: { ReviewComparison, ReviewMissingFindings, ReviewEvidenceSearch, ReviewPlan, ReviewPreview, ReviewChecks, ReviewShares },
 	data() {
 		return {
 			filterOwner: '', filterFolder: '', appliedOwner: '', appliedFolder: '',
@@ -362,6 +363,7 @@ export default {
 </script>
 
 <style scoped>
+.review h2 { scroll-margin-top: calc(var(--header-height, 50px) + 16px); }
 .review__filters { padding: 16px; border-bottom: 1px solid var(--color-border); }
 .review__filters label { display: block; margin: 8px 0; }
 .review__filters input { display: block; width: min(100%, 650px); }

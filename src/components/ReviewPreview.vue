@@ -16,12 +16,21 @@
 			{{ t('duplicatefinder', 'Historical preview could not be loaded. Use the button to retry.') }}
 		</p>
 		<figure v-if="source">
-			<img :src="source"
+			<label>{{ t('duplicatefinder', 'Preview display size') }}
+                <select v-model="zoom" data-preview-zoom>
+                    <option value="fit">{{ t('duplicatefinder', 'Fit preview') }}</option>
+                    <option value="1">100%</option><option value="2">200%</option><option value="4">400%</option>
+                </select>
+            </label>
+            <p>{{ t('duplicatefinder', 'Stored preview resolution') }}: {{ width }} × {{ height }} px. {{ t('duplicatefinder', 'Enlarging this preview does not add detail or load the original.') }}</p>
+            <div class="review-preview__viewport" tabindex="0" :aria-label="t('duplicatefinder', 'Scrollable preview')">
+            <img :src="source" :style="imageStyle" 
 				:width="width"
 				:height="height"
 				:alt="t('duplicatefinder', 'Scaled first frame from the historical original')"
 				@load="imageLoaded"
 				@error="imageError">
+            </div>
 			<figcaption>
 				<p>{{ t('duplicatefinder', 'Historical original preview') }} · {{ timestamp }}</p>
 				<p>{{ t('duplicatefinder', 'The preview shows only the first frame. The original check decoded all exposed frames.') }}</p>
@@ -49,10 +58,14 @@ export default {
 		evidenceId: { type: [Number, String], required: true },
 	},
 	data() {
-		return { imageReady: false, assessmentSource: null, source: '', width: 0, height: 0, createdAt: null, loading: false, unavailable: false, error: false, request: 0 }
+		return { zoom: 'fit', imageReady: false, assessmentSource: null, source: '', width: 0, height: 0, createdAt: null, loading: false, unavailable: false, error: false, request: 0 }
 	},
 	computed: {
-		timestamp() { return new Date(this.createdAt * 1000).toLocaleString() },
+		imageStyle() {
+            if (!['1', '2', '4'].includes(this.zoom)) return {}
+            return { width: this.width * Number(this.zoom) + 'px', height: this.height * Number(this.zoom) + 'px', maxWidth: 'none' }
+        },
+        timestamp() { return new Date(this.createdAt * 1000).toLocaleString() },
 	},
 	watch: {
 		appRef: 'clear',
@@ -61,6 +74,7 @@ export default {
 	beforeDestroy() { this.clear() },
 	methods: {
 		clear() {
+			this.zoom = 'fit'
 			this.request++
 			this.imageReady = false
 			this.assessmentSource = null
@@ -136,6 +150,7 @@ export default {
 <style scoped>
 .review-preview { margin-top: 12px; }
 figure { margin: 12px 0; }
+.review-preview__viewport { overflow: auto; max-height: 70vh; max-width: 100%; }
 img { display: block; max-width: 100%; height: auto; object-fit: contain; }
 figcaption { max-width: 65ch; }
 figcaption p { margin: 8px 0; }

@@ -56,3 +56,12 @@ test('requires successful image load and explicit human action before emitting a
  assert.equal(vm.$el.querySelector('[data-assess-visible]'),null)
  dispose(vm)
 })
+
+test('preview zoom changes displayed size only and resets on binding change',async()=>{
+ const vm=mount(async()=>({data:artifact()}));await vm.load();await tick();
+ const zoom=vm.$el.querySelector('[data-preview-zoom]');assert.ok(zoom);
+ zoom.value='2';zoom.dispatchEvent(new window.Event('change'));await tick();
+ const img=vm.$el.querySelector('img');assert.equal(img.style.width,'200px');assert.equal(img.style.height,'100px');
+ assert.match(vm.$el.textContent,/100 × 50/);assert.match(vm.$el.textContent,/does not add detail/);
+ vm.evidenceId=8;await tick();assert.equal(vm.zoom,'fit');assert.equal(vm.source,'');dispose(vm);
+});
