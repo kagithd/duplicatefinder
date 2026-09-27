@@ -20,12 +20,18 @@
 				:width="width"
 				:height="height"
 				:alt="t('duplicatefinder', 'Scaled first frame from the historical original')"
+				@load="imageLoaded"
 				@error="imageError">
 			<figcaption>
 				<p>{{ t('duplicatefinder', 'Historical original preview') }} · {{ timestamp }}</p>
 				<p>{{ t('duplicatefinder', 'The preview shows only the first frame. The original check decoded all exposed frames.') }}</p>
-				<p>{{ t('duplicatefinder', 'Original revision has not been rechecked.') }} {{ t('duplicatefinder', 'Visual content has not been assessed.') }}</p>
+				<p>{{ t('duplicatefinder', 'Original revision has not been rechecked.') }} <span v-if="!allowAssessment">{{ t('duplicatefinder', 'Visual content has not been assessed.') }}</span></p>
 			</figcaption>
+			<div v-if="allowAssessment">
+				<p>{{ t('duplicatefinder', 'Assess only this scaled first frame. This does not assess other frames or the current original.') }}</p>
+				<button type="button" data-assess-visible :disabled="!imageReady || disabled" @click="assess('content_visible')">{{ t('duplicatefinder', 'Content visible in this preview') }}</button>
+				<button type="button" data-assess-problem :disabled="!imageReady || disabled" @click="assess('problem')">{{ t('duplicatefinder', 'Problem visible in this preview') }}</button>
+			</div>
 		</figure>
 	</section>
 </template>
@@ -37,11 +43,13 @@ import { generateUrl } from '@nextcloud/router'
 export default {
 	name: 'ReviewPreview',
 	props: {
+		allowAssessment: { type: Boolean, default: false },
+		disabled: { type: Boolean, default: false },
 		appRef: { type: [Number, String], required: true },
 		evidenceId: { type: [Number, String], required: true },
 	},
 	data() {
-		return { source: '', width: 0, height: 0, createdAt: null, loading: false, unavailable: false, error: false, request: 0 }
+		return { imageReady: false, assessmentSource: null, source: '', width: 0, height: 0, createdAt: null, loading: false, unavailable: false, error: false, request: 0 }
 	},
 	computed: {
 		timestamp() { return new Date(this.createdAt * 1000).toLocaleString() },
@@ -54,6 +62,8 @@ export default {
 	methods: {
 		clear() {
 			this.request++
+			this.imageReady = false
+			this.assessmentSource = null
 			this.source = ''
 			this.createdAt = null
 			this.width = 0
@@ -62,13 +72,23 @@ export default {
 			this.error = false
 			this.unavailable = false
 		},
+		imageLoaded(event) {
+			this.imageReady = event.target.getAttribute('src') === this.source && event.target.naturalWidth > 0
+		},
+		assess(status) {
+			if (!this.allowAssessment || this.disabled || !this.imageReady || !this.assessmentSource || !['content_visible', 'problem'].includes(status)) return
+			this.$emit('assessed', { appRef: Number(this.appRef), status, source: { ...this.assessmentSource } })
+		},
 		imageError() {
+			this.imageReady = false
+			this.assessmentSource = null
 			this.source = ''
 			this.error = true
 		},
 		validate(data, appRef, evidenceId) {
 			const descriptor = data.record?.descriptor
 			if (String(data.appRef) !== String(appRef) || String(data.evidenceId) !== String(evidenceId)
+				|| !Number.isSafeInteger(data.id) || data.id < 1 || !/^[a-f0-9]{64}$/.test(data.record?.sha256 || '')
 				|| data.record?.schemaVersion !== 1 || !Number.isFinite(data.createdAt)
 				|| data.nativeFreshness !== 'not_rechecked' || data.validityScope !== 'original_first_frame_scaled'
 				|| data.visualAssessment !== 'not_provided' || !descriptor
@@ -99,6 +119,7 @@ export default {
 				this.width = descriptor.width
 				this.height = descriptor.height
 				this.createdAt = data.createdAt
+				this.assessmentSource = { kind: 'original_preview', evidenceId: Number(evidenceId), previewId: data.id, sha256: data.record.sha256, scope: data.validityScope }
 				this.source = 'data:image/jpeg;base64,' + descriptor.imageBase64
 			} catch (error) {
 				if (request !== this.request) return

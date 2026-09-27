@@ -8,7 +8,7 @@ use OCA\DuplicateFinder\Db\ReviewMapper;
 use OCA\DuplicateFinder\Exception\EvidenceConflictException;
 use PHPUnit\Framework\TestCase;
 class PlanServiceTest extends TestCase  {
-    private function fixture(array $overrides = [], bool $alias = false, ?string $candidate = null, ?EvidenceService $evidence = null): array  {
+    private function fixture(array $overrides = [], bool $alias = false, ?string $candidate = null, ?EvidenceService $evidence = null, ?\OCA\DuplicateFinder\Service\PreviewArtifactService $previews = null): array  {
         $r=['id'=>1,'indexOwner'=>'alice','indexPath'=>'/alice/files/a','owner'=>'alice','path'=>'/alice/files/a','storageId'=>'home::alice','nodeId'=>4,'etag'=>'v1','size'=>12,'mtime'=>100,'availability'=>'available','candidateHash'=>str_repeat('a',64)];
         $r = array_merge($r, $overrides);
         $review=$this->createMock(ReviewService::class);
@@ -16,7 +16,7 @@ class PlanServiceTest extends TestCase  {
         $index=$this->createMock(ReviewMapper::class);
         $index->method('candidateHash')->willReturn($candidate ?? str_repeat('a',64));
         $mapper=$this->createMock(PlanMapper::class);
-        $service=new PlanService($mapper,$review,$index,$evidence ?? $this->createMock(EvidenceService::class));
+        $service=new PlanService($mapper,$review,$index,$evidence ?? $this->createMock(EvidenceService::class), $previews ?? $this->createMock(\OCA\DuplicateFinder\Service\PreviewArtifactService::class));
         $member=['appRef'=>1,'action'=>'keep','expected'=>$r,'evidenceIds'=>[],'manualAssessment'=>['status'=>'not_assessed','note'=>''],'reason'=>''];
         return [$service,$mapper,['hash'=>str_repeat('a',64),'members'=>[$member],'indexActions'=>[],'note'=>'','idempotencyKey'=>'request-1']];
     }
@@ -132,4 +132,55 @@ class PlanServiceTest extends TestCase  {
             $this->assertSame('Saved revision too large', $e->getMessage());
             $this->assertLessThan(40, $calls, 'Stop fetching as soon as the cumulative record budget is exceeded');
         }
-    }}
+    }
+    private function manualFixture(array $changes = []): array {
+        $preview = $this->createMock(\OCA\DuplicateFinder\Service\PreviewArtifactService::class);
+        $evidence = $this->createMock(EvidenceService::class);
+        $evidence->method('getEvidence')->willReturn(['id'=>7, 'appRef'=>1]);
+        [$service,$mapper,$payload] = $this->fixture([],false,null,$evidence,$preview);
+        $snapshot = ['appRef'=>1];
+        foreach (['indexOwner','indexPath','owner','path','nodeId','storageId','etag','size','mtime'] as $key) $snapshot[$key] = $payload['members'][0]['expected'][$key];
+        $artifact = ['id'=>12,'appRef'=>1,'evidenceId'=>7,'record'=>['boundSnapshot'=>$snapshot,'sha256'=>str_repeat('b',64)], 'validityScope'=>'original_first_frame_scaled'];
+        $artifact = array_replace_recursive($artifact,$changes);
+        $preview->method('getPreview')->with(1,7)->willReturn($artifact);
+        $payload['members'][0]['evidenceIds']=[7];
+        $payload['members'][0]['manualAssessment']=['status'=>'content_visible','note'=>'Visible subject', 'source'=>['kind'=>'original_preview','evidenceId'=>7,'previewId'=>12,'sha256'=>str_repeat('b',64),'scope'=>'original_first_frame_scaled']];
+        return [$service,$mapper,$payload];
+    }
+    public function testManualAssessmentPreservesExactOriginalPreviewProvenance(): void {
+        [$service,$mapper,$payload]=$this->manualFixture();
+        $mapper->method('save')->willReturnCallback(fn($id,$prev,$key,$digest,$record)=>$record);
+        $saved=$service->create($payload,'reviewer');
+        $this->assertSame($payload['members'][0]['manualAssessment'],$saved['members'][0]['manualAssessment']);
+        $this->assertFalse($saved['executable']);
+        $this->assertContains('native_revision_not_rechecked',$saved['limitations']);
+    }
+    public function testPositiveManualAssessmentRequiresExplicitSource(): void {
+        [$service,$mapper,$payload]=$this->fixture();
+        $payload['members'][0]['manualAssessment']['status']='content_visible';
+        $mapper->expects($this->never())->method('save');
+        $this->expectException(\InvalidArgumentException::class);
+        $service->create($payload,'reviewer');
+    }
+    public function testManualPreviewMustMatchReferenceRevisionAndDigest(): void {
+        foreach ([['id'=>13],['appRef'=>2],['evidenceId'=>8],['record'=>['sha256'=>str_repeat('c',64)]],['record'=>['boundSnapshot'=>['etag'=>'old']]],['validityScope'=>'all_frames']] as $change) {
+            [$service,$mapper,$payload]=$this->manualFixture($change);
+            $mapper->expects($this->never())->method('save');
+            try { $service->create($payload,'reviewer'); $this->fail('Mismatched preview accepted'); }
+            catch (EvidenceConflictException $error) { $this->assertNotEmpty($error->getMessage()); }
+        }
+    }
+    public function testManualSourceMustBeSelectedAndCannotClaimUnassessed(): void {
+        foreach (['evidence','status','field','scope','id'] as $change) {
+            [$service,$mapper,$payload]=$this->manualFixture();
+            if ($change==='evidence') $payload['members'][0]['evidenceIds']=[];
+            if ($change==='status') $payload['members'][0]['manualAssessment']['status']='not_assessed';
+            if ($change==='field') $payload['members'][0]['manualAssessment']['source']['path']='/arbitrary';
+            if ($change==='scope') $payload['members'][0]['manualAssessment']['source']['scope']='all_frames';
+            if ($change==='id') $payload['members'][0]['manualAssessment']['source']['previewId']='12';
+            $mapper->expects($this->never())->method('save');
+            try { $service->create($payload,'reviewer'); $this->fail('Invalid source accepted'); }
+            catch (\InvalidArgumentException $error) { $this->assertNotEmpty($error->getMessage()); }
+        }
+    }
+}

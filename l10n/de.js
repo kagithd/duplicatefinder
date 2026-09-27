@@ -550,6 +550,12 @@ OC.L10N.register(
     "Scaled first frame from the historical original" : "Verkleinerter erster Frame des historischen Originals",
     "Historical original preview" : "Historische Originalvorschau",
     "The preview shows only the first frame. The original check decoded all exposed frames." : "Die Vorschau zeigt nur den ersten Frame. Die Originalprüfung dekodierte alle bereitgestellten Frames.",
+    "Assess only this scaled first frame. This does not assess other frames or the current original." : "Bewerte nur diesen verkleinerten ersten Frame. Weitere Frames und das aktuelle Original werden damit nicht beurteilt.",
+    "Content visible in this preview" : "Inhalt in dieser Vorschau erkennbar",
+    "Problem visible in this preview" : "Problem in dieser Vorschau erkennbar",
+    "Assessed historical preview" : "Bewertete historische Vorschau",
+    "Assessment note" : "Notiz zur Inhaltsbewertung",
+    "Clear assessment" : "Bewertung zur\u00fccksetzen",
     "The viewer is not available" : "Der Betrachter ist nicht verfügbar"
 },
 "nplurals=2; plural=(n != 1);");

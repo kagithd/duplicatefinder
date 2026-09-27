@@ -24,7 +24,11 @@
 					:disabled="busy"
 					maxlength="4000"
 					@input="saved = false"></label>
-				<p>{{ t('duplicatefinder', 'Visual content has not been assessed.') }} · {{ t('duplicatefinder', 'Finding IDs') }}: {{ decision.evidenceIds.join(', ') || '—' }}</p>
+				<p>{{ assessmentLabel(decision.manualAssessment.status) }} · {{ t('duplicatefinder', 'Finding IDs') }}: {{ decision.evidenceIds.join(', ') || '—' }}</p>
+				<p v-if="decision.manualAssessment.source">{{ t('duplicatefinder', 'Assessed historical preview') }}: {{ decision.manualAssessment.source.previewId }} · {{ decision.manualAssessment.source.scope }}</p>
+				<label v-if="decision.manualAssessment.status !== 'not_assessed'">{{ t('duplicatefinder', 'Assessment note') }}<textarea v-model="decision.manualAssessment.note" :disabled="busy" maxlength="2048" @input="saved = false" /></label>
+				<button v-if="decision.manualAssessment.status !== 'not_assessed'" type="button" :disabled="busy" @click="clearAssessment(decision)">{{ t('duplicatefinder', 'Clear assessment') }}</button>
+				<ReviewPreview v-for="evidenceId in decision.evidenceIds" :key="decision.appRef + ':' + evidenceId" :app-ref="decision.appRef" :evidence-id="evidenceId" :allow-assessment="true" :disabled="busy" @assessed="assess(decision, $event)" />
 				<button type="button" :disabled="busy" @click="removeDecision(decision)">
 					{{ t('duplicatefinder', 'Remove selection') }}
 				</button>
@@ -84,11 +88,13 @@
 	</section>
 </template>
 <script>
+import ReviewPreview from './ReviewPreview.vue'
 import axios from '@nextcloud/axios'
 import { generateUrl } from '@nextcloud/router'
 const copy = value => JSON.parse(JSON.stringify(value))
 export default {
 	name: 'ReviewPlan',
+	components: { ReviewPreview },
 	props: { hash: { type: String, default: '' } },
 	data() {
 		return { decisions: [], draftHash: '', note: '', predecessor: null, planId: null, signature: '', retryKey: '', busy: false, error: '', saved: false, plans: [], nextCursor: null, record: null, revisionInput: 1 }
@@ -96,6 +102,17 @@ export default {
 	mounted() { window.addEventListener('beforeunload', this.guardUnload) },
 	beforeDestroy() { window.removeEventListener('beforeunload', this.guardUnload) },
 	methods: {
+		assessmentLabel(status) {
+			return this.t('duplicatefinder', status === 'content_visible' ? 'Content visible in this preview' : status === 'problem' ? 'Problem visible in this preview' : 'Visual content has not been assessed.')
+		},
+		assess(decision, assessment) {
+			if (this.busy || !this.decisions.includes(decision) || assessment.appRef !== decision.appRef || !decision.evidenceIds.includes(assessment.source?.evidenceId) || !['content_visible', 'problem'].includes(assessment.status)) return
+			const previous = decision.manualAssessment.source
+			const sameSource = previous && previous.previewId === assessment.source.previewId && previous.evidenceId === assessment.source.evidenceId && previous.sha256 === assessment.source.sha256
+			decision.manualAssessment = { status: assessment.status, note: sameSource ? decision.manualAssessment.note : '', source: copy(assessment.source) }
+			this.saved = false
+		},
+		clearAssessment(decision) { if (this.busy) return; decision.manualAssessment = { status: 'not_assessed', note: '' }; this.saved = false },
 		guardUnload(event) {
 			if (this.draftHash && !this.saved) { event.preventDefault(); event.returnValue = '' }
 		},

@@ -42,3 +42,17 @@ test('clears previews on binding changes and ignores late responses and unmount'
 test('distinguishes missing previews from retryable errors',async()=>{
  for(const status of [404,500]){let calls=0;const vm=mount(async()=>{if(++calls===1)throw {response:{status}};return {data:artifact()}});vm.$el.querySelector('button').click();await tick();assert.match(vm.$el.textContent,status===404?/unavailable|verfügbar/:/could not|konnte/);vm.$el.querySelector('button').click();await tick();assert.ok(vm.$el.querySelector('img'));dispose(vm)}
 })
+
+test('requires successful image load and explicit human action before emitting a bound assessment', async()=>{
+ const vm=mount(async()=>({data:artifact()}),{appRef:9,evidenceId:7,allowAssessment:true});const events=[]
+ vm.$on('assessed',value=>events.push(value))
+ await vm.load();await tick();assert.equal(events.length,0)
+ const button=vm.$el.querySelector('[data-assess-visible]');assert.ok(button);assert.equal(button.disabled,true)
+ Object.defineProperty(vm.$el.querySelector('img'),'naturalWidth',{value:100});vm.$el.querySelector('img').dispatchEvent(new window.Event('load'));await tick()
+ assert.equal(button.disabled,false);assert.equal(events.length,0)
+ button.click();await tick()
+ assert.deepEqual(events,[{appRef:9,status:'content_visible',source:{kind:'original_preview',evidenceId:7,previewId:1,sha256:'a'.repeat(64),scope:'original_first_frame_scaled'}}])
+ vm.$el.querySelector('img').dispatchEvent(new window.Event('error'));await tick()
+ assert.equal(vm.$el.querySelector('[data-assess-visible]'),null)
+ dispose(vm)
+})

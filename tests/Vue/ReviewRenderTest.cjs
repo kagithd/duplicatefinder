@@ -22,8 +22,8 @@ function mount(get, post = async () => { throw new Error("unexpected mutation") 
     const code = babel.transformSync(sfc.script.content, { babelrc: false, configFile: false, plugins: ['@babel/plugin-transform-modules-commonjs'] }).code
     const module = { exports: {} }
     const fakeRequire = name => {
-        if (name === './components/ReviewPlan.vue' || name === './components/ReviewPreview.vue') {
-            const child = compiler.parseComponent(fs.readFileSync(path.join(__dirname, '../../src', name), 'utf8'))
+        if (name === './components/ReviewPlan.vue' || name === './components/ReviewPreview.vue' || name === './ReviewPreview.vue') {
+            const child = compiler.parseComponent(fs.readFileSync(path.join(__dirname, '../../src', name === './ReviewPreview.vue' ? './components/ReviewPreview.vue' : name), 'utf8'))
             const childCode = babel.transformSync(child.script.content, { babelrc: false, configFile: false, plugins: ['@babel/plugin-transform-modules-commonjs'] }).code
             const childMod = { exports: {} }
             new Function('require', 'module', 'exports', childCode)(fakeRequire, childMod, childMod.exports)
@@ -277,7 +277,7 @@ test('preview control appears only after explicitly loading a passed finding and
     const calls = []
     const vm = mount(async url => {
         calls.push(url)
-        if (url.endsWith('/preview')) return { data: { id: 1, appRef: 9, evidenceId: 7, createdAt: 1700000000, record: { schemaVersion: 1, descriptor: { status: 'available', scope: 'original_first_frame_scaled', mime: 'image/jpeg', frameIndex: 0, width: 100, height: 50, imageBase64: Buffer.from([255,216,255,224,1,2,255,217]).toString('base64') } }, nativeFreshness: 'not_rechecked', validityScope: 'original_first_frame_scaled', visualAssessment: 'not_provided' } }
+        if (url.endsWith('/preview')) return { data: { id: 1, appRef: 9, evidenceId: 7, createdAt: 1700000000, record: { schemaVersion: 1, sha256: 'a'.repeat(64), descriptor: { status: 'available', scope: 'original_first_frame_scaled', mime: 'image/jpeg', frameIndex: 0, width: 100, height: 50, imageBase64: Buffer.from([255,216,255,224,1,2,255,217]).toString('base64') } }, nativeFreshness: 'not_rechecked', validityScope: 'original_first_frame_scaled', visualAssessment: 'not_provided' } }
         return responseForReview(url, () => Promise.resolve({ data: { items: [evidenceEntry()], nextCursor: null } }))
     })
     await tick(); vm.$el.querySelector('[data-group]').click(); await tick()
@@ -320,4 +320,27 @@ test('a pending preview cannot return after its parent changes the group page', 
     assert.equal(vm.$el.querySelector('img'), null)
     assert.equal(vm.$el.querySelector('[data-load-preview]'), null)
     dispose(vm)
+})
+
+test('plan preview requires an explicit loaded-image assessment and persists its exact source',async()=>{
+ let submitted
+ const vm=mount(async url=>{
+  if(url.endsWith('/preview'))return {data:{id:1,appRef:9,evidenceId:7,createdAt:1700000000,record:{schemaVersion:1,sha256:'a'.repeat(64),descriptor:{status:'available',scope:'original_first_frame_scaled',mime:'image/jpeg',frameIndex:0,width:100,height:50,imageBase64:Buffer.from([255,216,255,224,1,2,255,217]).toString('base64')}},nativeFreshness:'not_rechecked',validityScope:'original_first_frame_scaled',visualAssessment:'not_provided'}}
+  return responseForReview(url,()=>Promise.resolve({data:{items:[evidenceEntry()],nextCursor:null}}))
+ },async(url,body)=>{submitted=body.payload;return {data:{...body.payload,planId:'x',revision:1,creator:'reviewer',executable:false}}})
+ await tick();vm.$el.querySelector('[data-group]').click();await tick()
+ vm.$el.querySelector('[data-load-evidence]').click();await tick()
+ vm.$el.querySelector('[data-plan-keep]').click();await tick()
+ const plan=vm.$refs.plan;plan.$el.querySelector('[data-load-preview]').click();await tick()
+ assert.equal(plan.decisions[0].manualAssessment.status,'not_assessed')
+ const img=plan.$el.querySelector('img');Object.defineProperty(img,'naturalWidth',{value:100});img.dispatchEvent(new window.Event('load'));await tick()
+ plan.$el.querySelector('[data-assess-visible]').click();await tick()
+ assert.equal(plan.decisions[0].manualAssessment.status,'content_visible')
+ assert.doesNotMatch(plan.$el.textContent,/Visual content has not been assessed/)
+ const note=plan.$el.querySelector('li textarea');note.value='Subject visible';note.dispatchEvent(new window.Event('input'));await tick()
+ await plan.save();assert.equal(submitted.members[0].manualAssessment.note,'Subject visible')
+ assert.equal(submitted.members[0].manualAssessment.source.previewId,1)
+ assert.equal(submitted.members[0].manualAssessment.source.evidenceId,7)
+ assert.equal(submitted.members[0].manualAssessment.source.scope,'original_first_frame_scaled')
+ dispose(vm)
 })

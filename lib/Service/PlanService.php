@@ -9,11 +9,13 @@ class PlanService {
     private ReviewService $review;
     private ReviewMapper $index;
     private EvidenceService $evidence;
-    public function __construct(PlanMapper $mapper,ReviewService $review,ReviewMapper $index,EvidenceService $evidence) {
+    private PreviewArtifactService $previews;
+    public function __construct(PlanMapper $mapper,ReviewService $review,ReviewMapper $index,EvidenceService $evidence,PreviewArtifactService $previews) {
         $this->mapper=$mapper;
         $this->review=$review;
         $this->index=$index;
         $this->evidence=$evidence;
+        $this->previews=$previews;
     }
     public function create(array $payload,string $creator):array {
         return $this->write(null,0,$payload,$creator);
@@ -75,7 +77,7 @@ class PlanService {
             $seen[$ref]=true;
             $this->note($m['reason']??null,2048);
             $manual=$m['manualAssessment']??null;
-            if(!is_array($manual)||array_diff(array_keys($manual),['status','note'])||!in_array($manual['status']??null,['not_assessed','content_visible','problem'],true)) {
+            if(!is_array($manual)||array_diff(array_keys($manual),['status','note','source'])||!in_array($manual['status']??null,['not_assessed','content_visible','problem'],true)) {
                 throw new \InvalidArgumentException('Invalid manual assessment');
             }
             $this->note($manual['note']??null,2048);
@@ -108,6 +110,7 @@ class PlanService {
             if(!is_array($ids)||!array_is_list($ids)||count($ids)>20||count(array_unique($ids,SORT_REGULAR))!==count($ids)) {
                 throw new \InvalidArgumentException('Invalid evidence selection');
             }
+            $this->validateManualSource($manual, $ref, $ids, $current);
             $member = ['appRef' => $ref, 'action' => $action, 'observed' => $current,
                 'candidateHash' => $p['hash'], 'evidence' => [],
                 'manualAssessment' => $manual, 'reason' => $m['reason']];
@@ -147,6 +150,40 @@ class PlanService {
             throw new \InvalidArgumentException('Saved revision too large');
         }
         return $this->mapper->save($planId,$prev,$key,$digest,$record);
+    }
+
+    /** A human statement concerns this historical preview, never current native integrity. */
+    private function validateManualSource(array $manual, int $ref, array $ids, array $current): void {
+        if ($manual['status'] === 'not_assessed') {
+            if (array_key_exists('source', $manual)) throw new \InvalidArgumentException('Unassessed content cannot have an assessment source');
+            return;
+        }
+        $source = $manual['source'] ?? null;
+        if (!is_array($source) || count($source) !== 5 ||
+            array_diff(array_keys($source), ['kind','evidenceId','previewId','sha256','scope']) ||
+            ($source['kind'] ?? null) !== 'original_preview' ||
+            ($source['scope'] ?? null) !== 'original_first_frame_scaled' ||
+            !is_int($source['evidenceId'] ?? null) || $source['evidenceId'] < 1 || $source['evidenceId'] >= PHP_INT_MAX ||
+            !is_int($source['previewId'] ?? null) || $source['previewId'] < 1 ||
+            !is_string($source['sha256'] ?? null) || !preg_match('/\A[a-f0-9]{64}\z/', $source['sha256']) ||
+            !in_array($source['evidenceId'], $ids, true)) {
+            throw new \InvalidArgumentException('A selected original preview source is required');
+        }
+        $artifact = $this->previews->getPreview($ref, $source['evidenceId']);
+        if ($artifact === null || ($artifact['id'] ?? null) !== $source['previewId'] ||
+            ($artifact['appRef'] ?? null) !== $ref || ($artifact['evidenceId'] ?? null) !== $source['evidenceId'] ||
+            ($artifact['validityScope'] ?? null) !== $source['scope'] ||
+            ($artifact['record']['sha256'] ?? null) !== $source['sha256'] ||
+            ($artifact['record']['boundSnapshot']['appRef'] ?? null) !== $ref) {
+            throw new EvidenceConflictException('Assessed preview binding changed or is unavailable');
+        }
+        foreach (['indexOwner','indexPath','owner','path','nodeId','storageId','etag','size','mtime'] as $field) {
+            if (!array_key_exists($field, $current) ||
+                !array_key_exists($field, $artifact['record']['boundSnapshot']) ||
+                $artifact['record']['boundSnapshot'][$field] !== $current[$field]) {
+                throw new EvidenceConflictException('Assessed preview belongs to a different observed revision');
+            }
+        }
     }
     public function listing(int $cursor=0,int $limit=25):array {
         if($cursor<0||$limit<1||$limit>100) {

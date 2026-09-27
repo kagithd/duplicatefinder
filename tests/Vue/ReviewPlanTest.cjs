@@ -7,7 +7,7 @@ function component(axios) {
  const sfc = compiler.parseComponent(fs.readFileSync('src/components/ReviewPlan.vue', 'utf8'))
  const code = babel.transformSync(sfc.script.content, {babelrc:false, configFile:false, plugins:['@babel/plugin-transform-modules-commonjs']}).code
  const mod = {exports:{}}
- new Function('require','module','exports',code)(n => n === '@nextcloud/axios' ? axios : n === '@nextcloud/router' ? {generateUrl:x=>x} : require(n),mod,mod.exports)
+ new Function('require','module','exports',code)(n => n === '@nextcloud/axios' ? axios : n === '@nextcloud/router' ? {generateUrl:x=>x} : n==='./ReviewPreview.vue'?{render:h=>h('div')}:require(n),mod,mod.exports)
  const c = mod.exports.default
  const vm = {...c.data(), t:(_,s)=>s, $set:(o,k,v)=>{o[k]=v}, hash:'a'.repeat(64)}
  for(const [k,v] of Object.entries(c.methods)) vm[k]=v.bind(vm)
@@ -49,7 +49,7 @@ test('renders escaped selected owners and paths and reviews an exact immutable r
  const mod={exports:{}}
  const calls=[]
  const record={planId:'x',revision:2,creator:'reviewer',createdAt:1,hash:'a'.repeat(64),state:'decision_draft',executable:false,note:'saved',members:[]}
- new Function('require','module','exports',code)(n=>n==='@nextcloud/axios'?{get:async url=>{calls.push(url);return {data:record}}}:n==='@nextcloud/router'?{generateUrl:x=>x}:require(n),mod,mod.exports)
+ new Function('require','module','exports',code)(n=>n==='@nextcloud/axios'?{get:async url=>{calls.push(url);return {data:record}}}:n==='@nextcloud/router'?{generateUrl:x=>x}:n==='./ReviewPreview.vue'?{render:h=>h('div')}:require(n),mod,mod.exports)
  const c=mod.exports.default
  Object.assign(c,compiler.compileToFunctions(sfc.template.content))
  const vm=new Vue({...c,propsData:{hash:'a'.repeat(64)},methods:{...c.methods,t:(_,s)=>s}}).$mount()
@@ -89,4 +89,27 @@ test('rejects oversized UTF8 notes and reasons before submitting and preserves c
  await vm.save();assert.equal(calls,0);assert.match(vm.error,/UTF-8/);assert.equal(vm.decisions[0].reason.length,1025)
  vm.decisions[0].reason='';vm.note='ä'.repeat(2049)
  await vm.save();assert.equal(calls,0);assert.match(vm.error,/UTF-8/)
+})
+
+test('explicit assessments retain source and note through saving and reject another reference',async()=>{
+ let payload
+ const vm=component({post:async(u,p)=>{payload=p.payload;return {data:{revision:1}}}})
+ vm.choose({id:9},'keep',{entry:{id:7}})
+ const d=vm.decisions[0];const source={kind:'original_preview',evidenceId:7,previewId:1,sha256:'a'.repeat(64),scope:'original_first_frame_scaled'}
+ assert.equal(typeof vm.assess,'function')
+ vm.assess(d,{appRef:10,status:'content_visible',source});assert.equal(d.manualAssessment.status,'not_assessed')
+ vm.assess(d,{appRef:9,status:'content_visible',source});d.manualAssessment.note='Visible first frame'
+ source.sha256='b'.repeat(64)
+ await vm.save();assert.equal(payload.members[0].manualAssessment.source.sha256,'a'.repeat(64))
+ assert.equal(payload.members[0].manualAssessment.note,'Visible first frame')
+ vm.clearAssessment(d);assert.deepEqual(d.manualAssessment,{status:'not_assessed',note:''});assert.equal(vm.saved,false)
+})
+
+test('changing the judgement of the same artifact preserves the written note',()=>{
+ const vm=component({});vm.choose({id:9},'keep',{entry:{id:7}})
+ const d=vm.decisions[0];const source={kind:'original_preview',evidenceId:7,previewId:1,sha256:'a'.repeat(64),scope:'original_first_frame_scaled'}
+ vm.assess(d,{appRef:9,status:'content_visible',source});d.manualAssessment.note='Keep this explanation'
+ vm.assess(d,{appRef:9,status:'problem',source})
+ assert.equal(d.manualAssessment.note,'Keep this explanation')
+ assert.equal(d.manualAssessment.status,'problem')
 })
