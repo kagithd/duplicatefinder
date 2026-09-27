@@ -1,0 +1,66 @@
+<?php
+
+namespace OCA\DuplicateFinder\Controller;
+
+use OCA\DuplicateFinder\Service\ReviewService;
+use OCP\AppFramework\Controller;
+use OCP\AppFramework\Http\DataResponse;
+use OCP\AppFramework\Http\TemplateResponse;
+use OCP\IGroupManager;
+use OCP\IRequest;
+use OCP\IUserSession;
+
+/** Read-only global review. Intentionally retains Nextcloud's admin middleware. */
+class ReviewController extends Controller
+{
+    private IUserSession $session;
+    private IGroupManager $groups;
+    private ReviewService $service;
+
+    public function __construct(string $appName, IRequest $request, IUserSession $session, IGroupManager $groups, ReviewService $service)
+    {
+        parent::__construct($appName, $request);
+        $this->session = $session;
+        $this->groups = $groups;
+        $this->service = $service;
+    }
+
+    private function isAdmin(): bool
+    {
+        $user = $this->session->getUser();
+        return $user !== null && $this->groups->isAdmin($user->getUID());
+    }
+
+    /**
+     * @NoCSRFRequired
+     */
+    public function index()
+    {
+        if (!$this->isAdmin()) {
+            return new DataResponse([], 403);
+        }
+        return new TemplateResponse($this->appName, 'Review');
+    }
+
+    public function groups(string $cursor = '', int $limit = 25): DataResponse
+    {
+        if (!$this->isAdmin()) {
+            return new DataResponse([], 403);
+        }
+        if ($limit < 1 || $limit > 100 || ($cursor !== '' && !preg_match('/\A[a-f0-9]{64}\z/', $cursor))) {
+            return new DataResponse(['error' => 'Invalid page parameters'], 400);
+        }
+        return new DataResponse($this->service->groups($cursor, $limit));
+    }
+
+    public function members(string $hash, int $cursor = 0, int $limit = 50): DataResponse
+    {
+        if (!$this->isAdmin()) {
+            return new DataResponse([], 403);
+        }
+        if ($limit < 1 || $limit > 100 || $cursor < 0 || !preg_match('/\A[a-f0-9]{64}\z/', $hash)) {
+            return new DataResponse(['error' => 'Invalid page parameters'], 400);
+        }
+        return new DataResponse($this->service->members($hash, $cursor, $limit));
+    }
+}

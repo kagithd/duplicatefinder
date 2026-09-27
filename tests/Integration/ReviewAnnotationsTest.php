@@ -1,0 +1,27 @@
+<?php
+
+namespace OCA\DuplicateFinder\Tests\Integration;
+
+use OC\AppFramework\Utility\ControllerMethodReflector;
+use OCA\DuplicateFinder\Controller\ReviewController;
+use PHPUnit\Framework\TestCase;
+use Psr\Log\NullLogger;
+
+/** Requires the real Nextcloud core reflector, not an annotation-parser mock. */
+class ReviewAnnotationsTest extends TestCase
+{
+    public function testOnlyThePageEntrySkipsCsrfAndAllReviewRoutesRequireAdmin(): void
+    {
+        if (!class_exists(ControllerMethodReflector::class)) {
+            $this->markTestSkipped('Nextcloud core is required for annotation integration');
+        }
+
+        foreach (['index' => true, 'groups' => false, 'members' => false] as $method => $pageEntry) {
+            $reflector = new ControllerMethodReflector(new NullLogger());
+            $reflector->reflect(ReviewController::class, $method);
+            $this->assertSame($pageEntry, $reflector->hasAnnotation('NoCSRFRequired'), $method . ' CSRF policy');
+            $this->assertFalse($reflector->hasAnnotation('NoAdminRequired'), $method . ' requires admin middleware');
+            $this->assertFalse($reflector->hasAnnotation('PublicPage'), $method . ' requires authentication');
+        }
+    }
+}

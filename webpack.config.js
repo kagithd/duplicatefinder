@@ -3,7 +3,8 @@ const path = require('path');
 
 webpackConfig.entry = {
     'main': './src/main.js',
-    'settings': './src/settings.js'
+    'settings': './src/settings.js',
+    'review': './src/review.js'
 };
 
 webpackConfig.devtool = false;
