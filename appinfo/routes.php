@@ -10,6 +10,8 @@ return [
        ['name' => 'review#groups', 'url' => '/api/review/groups', 'verb' => 'GET'],
        ['name' => 'review#members', 'url' => '/api/review/groups/{hash}/members', 'verb' => 'GET'],
 
+       ['name' => 'evidence#history', 'url' => '/api/review/members/{appRef}/evidence', 'verb' => 'GET'],
+
        // Filter routes
        ['name' => 'filter#index', 'url' => '/api/filters', 'verb' => 'GET'],
        ['name' => 'filter#create', 'url' => '/api/filters', 'verb' => 'POST'],

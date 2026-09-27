@@ -146,3 +146,94 @@ test('loading state prevents page requests and delayed responses cannot repopula
     assert.equal(vm.$el.querySelector('[data-next-members]'), null)
     dispose(vm)
 })
+
+const evidenceEntry = (status = 'passed', usability = 'unverifiable') => ({
+    id: 7, appRef: 9, createdAt: 1700000000,
+    record: { report: { status, format: 'PNG', decoder: { name: 'Pillow', version: '10.2.0' }, frames_decoded: 3, scope: 'original_all_exposed_frames', content_judgment: 'not_assessed' } },
+    usability, reason: 'native_revision_not_rechecked',
+    nativeFreshness: 'not_rechecked', validityScope: 'nextcloud_metadata_only',
+})
+function responseForReview(url, evidence) {
+    if (url.endsWith('/evidence')) return evidence()
+    if (url.endsWith('/members')) return Promise.resolve({ data: { items: [{ id: 9, indexOwner: 'alice', indexPath: '/alice/files/photo.png' }], nextCursor: null } })
+    return Promise.resolve({ data: { items: [{ hash: hashA, referenceCount: 2 }], nextCursor: hashA } })
+}
+
+test('loads only requested latest historical evidence without claiming current integrity', async () => {
+    const calls = []
+    const vm = mount((url, options) => {
+        calls.push([url, options])
+        return responseForReview(url, () => Promise.resolve({ data: { items: [evidenceEntry()], nextCursor: null } }))
+    })
+    await tick()
+    vm.$el.querySelector('[data-group]').click()
+    await tick()
+    assert.equal(calls.length, 2)
+    vm.$el.querySelector('[data-load-evidence]').click()
+    await tick()
+    assert.equal(calls.length, 3)
+    assert.equal(calls[2][0], '/apps/duplicatefinder/api/review/members/9/evidence')
+    assert.equal(calls[2][1].params.limit, 1)
+    const panel = vm.$el.querySelector('[data-evidence]')
+    assert.match(panel.textContent, /Historical finding/)
+    assert.match(panel.textContent, /All exposed frames decoded/)
+    assert.match(panel.textContent, /Original revision has not been rechecked/)
+    assert.match(panel.textContent, /3/)
+    assert.match(panel.textContent, /10.2.0/)
+    assert.match(panel.textContent, /Visual content has not been assessed/)
+    dispose(vm)
+})
+
+test('does not reuse late evidence after changing the group page', async () => {
+    let resolveEvidence
+    const vm = mount(url => responseForReview(url, () => new Promise(resolve => { resolveEvidence = resolve })))
+    await tick()
+    vm.$el.querySelector('[data-group]').click()
+    await tick()
+    vm.$el.querySelector('[data-load-evidence]').click()
+    await tick()
+    vm.$el.querySelector('[data-next-groups]').click()
+    await tick()
+    resolveEvidence({ data: { items: [evidenceEntry()], nextCursor: null } })
+    await tick()
+    assert.equal(vm.$el.querySelector('[data-evidence]'), null)
+    dispose(vm)
+})
+
+test('evidence load failure retries and an empty history stays unchecked', async () => {
+    let count = 0
+    const vm = mount(url => responseForReview(url, async () => {
+        if (++count === 1) throw new Error('offline')
+        return { data: { items: [], nextCursor: null } }
+    }))
+    await tick()
+    vm.$el.querySelector('[data-group]').click()
+    await tick()
+    vm.$el.querySelector('[data-load-evidence]').click()
+    await tick()
+    assert.match(vm.$el.querySelector('[data-evidence]').textContent, /Finding could not be loaded/)
+    vm.$el.querySelector('[data-load-evidence]').click()
+    await tick()
+    assert.match(vm.$el.querySelector('[data-evidence]').textContent, /No saved finding/)
+    assert.doesNotMatch(vm.$el.querySelector('[data-evidence]').textContent, /All exposed frames decoded/)
+    dispose(vm)
+})
+
+test('displays damaged, unsupported and stale findings without changing their meaning', async () => {
+    for (const [status, usability, expected] of [
+        ['corrupt', 'unverifiable', /Decoding failed/],
+        ['unsupported', 'unverifiable', /Format not supported/],
+        ['limit', 'unverifiable', /Check stopped at a resource limit/],
+        ['passed', 'stale', /File metadata changed since this check/],
+        ['passed', 'checker_outdated', /Checker or decoder version changed/],
+    ]) {
+        const vm = mount(url => responseForReview(url, () => Promise.resolve({ data: { items: [evidenceEntry(status, usability)], nextCursor: null } })))
+        await tick()
+        vm.$el.querySelector('[data-group]').click()
+        await tick()
+        vm.$el.querySelector('[data-load-evidence]').click()
+        await tick()
+        assert.match(vm.$el.querySelector('[data-evidence]').textContent, expected)
+        dispose(vm)
+    }
+})

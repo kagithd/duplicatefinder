@@ -15,6 +15,20 @@ class ReviewMapper
         $this->db = $db;
     }
 
+    public function reference(int $appRef): ?array
+    {
+        $qb = $this->db->getQueryBuilder();
+        $qb->select('id', 'owner', 'path')->from('duplicatefinder_finfo')
+            ->where($qb->expr()->eq('id', $qb->createNamedParameter($appRef, IQueryBuilder::PARAM_INT)))
+            ->setMaxResults(1);
+        $result = $qb->executeQuery();
+        try {
+            $row = $result->fetch();
+            return $row === false ? null : $row;
+        } finally {
+            $result->closeCursor();
+        }
+    }
     public function groups(string $cursor, int $limit): array
     {
         $qb = $this->db->getQueryBuilder();

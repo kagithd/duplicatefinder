@@ -20,6 +20,11 @@ class ReviewService
         $this->users = $users;
     }
 
+    public function reference(int $appRef): ?array
+    {
+        $row = $this->mapper->reference($appRef);
+        return $row === null ? null : $this->observe($row);
+    }
     public function groups(string $cursor, int $limit): array
     {
         $rows = $this->mapper->groups($cursor, $limit + 1);

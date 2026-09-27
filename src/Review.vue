@@ -76,6 +76,39 @@
 							</p>
 							<p>{{ member.availability === 'available' ? t('duplicatefinder', 'Metadata accessible') : t('duplicatefinder', 'Unavailable — index reference retained') }} · {{ t('duplicatefinder', 'Integrity: Not checked') }}</p>
 							<p>{{ formatSize(member.size) }} · {{ t('duplicatefinder', 'Modified') }}: {{ formatTime(member.mtime) }}</p>
+							<button type="button"
+								data-load-evidence
+								:disabled="evidence[member.id] && evidence[member.id].loading"
+								@click="loadEvidence(member)">
+								{{ t('duplicatefinder', 'Load latest finding') }}
+							</button>
+							<div v-if="evidence[member.id]" data-evidence class="review__evidence">
+								<p v-if="evidence[member.id].loading" role="status">
+									{{ t('duplicatefinder', 'Loading finding…') }}
+								</p>
+								<p v-else-if="evidence[member.id].error" role="alert">
+									{{ t('duplicatefinder', 'Finding could not be loaded. Use the button to retry.') }}
+								</p>
+								<template v-else-if="evidence[member.id].entry">
+									<h4>{{ t('duplicatefinder', 'Historical finding') }} · {{ formatTime(evidence[member.id].entry.createdAt) }}</h4>
+									<p>{{ findingStatus(evidence[member.id].entry) }}</p>
+									<p>{{ findingUsability(evidence[member.id].entry) }}</p>
+									<p>{{ t('duplicatefinder', 'Original revision has not been rechecked.') }}</p>
+									<p>
+										{{ display(reportOf(evidence[member.id].entry).format) }} ·
+										{{ t('duplicatefinder', 'Decoded frames') }}: {{ display(reportOf(evidence[member.id].entry).frames_decoded) }}
+									</p>
+									<p v-if="reportOf(evidence[member.id].entry).decoder">
+										{{ t('duplicatefinder', 'Decoder') }}:
+										{{ reportOf(evidence[member.id].entry).decoder.name }}
+										{{ reportOf(evidence[member.id].entry).decoder.version }}
+									</p>
+									<p>{{ t('duplicatefinder', 'Visual content has not been assessed.') }}</p>
+								</template>
+								<p v-else>
+									{{ t('duplicatefinder', 'No saved finding. Integrity remains unchecked.') }}
+								</p>
+							</div>
 							<details>
 								<summary>{{ t('duplicatefinder', 'File identity details') }}</summary>
 								<dl>
@@ -128,16 +161,55 @@ export default {
 			membersError: false,
 			groupRequest: 0,
 			memberRequest: 0,
+			evidence: {},
+			evidenceEpoch: 0,
 		}
 	},
 	mounted() {
 		this.loadGroups('')
 	},
 	beforeDestroy() {
+		this.evidenceEpoch++
 		this.groupRequest++
 		this.memberRequest++
 	},
 	methods: {
+		reportOf(entry) {
+			return entry.record?.report || {}
+		},
+		findingStatus(entry) {
+			const report = this.reportOf(entry)
+			const labels = {
+				passed: report.scope === 'original_all_exposed_frames' ? 'All exposed frames decoded' : 'Check completed',
+				corrupt: 'Decoding failed',
+				unsupported: 'Format not supported',
+				inaccessible: 'Original could not be read',
+				limit: 'Check stopped at a resource limit',
+				stale: 'Original changed during the check',
+				error: 'Check could not be completed',
+			}
+			return this.t('duplicatefinder', labels[report.status] || 'Unknown finding')
+		},
+		findingUsability(entry) {
+			if (entry.usability === 'stale') return this.t('duplicatefinder', 'File metadata changed since this check.')
+			if (entry.usability === 'checker_outdated') return this.t('duplicatefinder', 'Checker or decoder version changed.')
+			if (entry.reason === 'checker_policy_unavailable') return this.t('duplicatefinder', 'Checker policy is not configured.')
+			if (entry.reason === 'nextcloud_revision_unavailable') return this.t('duplicatefinder', 'Current file metadata is unavailable.')
+			return this.t('duplicatefinder', 'This historical finding does not establish current file integrity.')
+		},
+		async loadEvidence(member) {
+			if (this.evidence[member.id]?.loading) return
+			const epoch = this.evidenceEpoch
+			this.$set(this.evidence, member.id, { loading: true, error: false, entry: null })
+			try {
+				const { data } = await axios.get(generateUrl('/apps/duplicatefinder/api/review/members/' + encodeURIComponent(member.id) + '/evidence'), { params: { cursor: 0, limit: 1 } })
+				if (epoch !== this.evidenceEpoch) return
+				this.$set(this.evidence, member.id, { loading: false, error: false, entry: data.items[0] || null })
+			} catch (error) {
+				if (epoch !== this.evidenceEpoch) return
+				this.$set(this.evidence, member.id, { loading: false, error: true, entry: null })
+			}
+		},
 		formatSize(value) {
 			if (value === null || value === undefined || value < 0) return this.t('duplicatefinder', 'Unknown size')
 			const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB']
@@ -152,6 +224,8 @@ export default {
 			return value === null || value === undefined ? this.t('duplicatefinder', 'Unknown') : value
 		},
 		async loadGroups(cursor) {
+			this.evidenceEpoch++
+			this.evidence = {}
 			const request = ++this.groupRequest
 			this.memberRequest++
 			this.selectedHash = ''
@@ -178,6 +252,8 @@ export default {
 			this.loadMembers(0)
 		},
 		async loadMembers(cursor) {
+			this.evidenceEpoch++
+			this.evidence = {}
 			const request = ++this.memberRequest
 			const hash = this.selectedHash
 			this.memberCursor = cursor
@@ -222,6 +298,8 @@ h3 { font-weight: 600; }
 .review__group span, .review__group code { display: block; }
 .review__group code, .review__hash code { font-size: 12px; overflow-wrap: anywhere; white-space: normal; }
 .review__member { padding: 16px 0; border-bottom: 1px solid var(--color-border); }
+.review__evidence { margin: 12px 0; padding: 12px; border-inline-start: 3px solid var(--color-border); }
+.review__evidence h4 { font-weight: 600; }
 .review__member:first-child { padding-top: 0; }
 .review__path, dd { overflow-wrap: anywhere; white-space: pre-wrap; }
 .review__member p { margin: 8px 0; }
