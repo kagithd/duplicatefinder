@@ -13,8 +13,9 @@ class CheckJobService {
     private EvidenceService $evidence;
     private PreviewArtifactService $previews;
     private ITimeFactory $clock;
-    public function __construct(CheckJobMapper $mapper,ReviewService $review,EvidenceSnapshotService $snapshots,EvidenceService $evidence,PreviewArtifactService $previews,ITimeFactory $clock) {
-        $this->mapper=$mapper;$this->review=$review;$this->snapshots=$snapshots;$this->evidence=$evidence;$this->previews=$previews;$this->clock=$clock;
+    private DetailArtifactService $details;
+    public function __construct(CheckJobMapper $mapper,ReviewService $review,EvidenceSnapshotService $snapshots,EvidenceService $evidence,PreviewArtifactService $previews,ITimeFactory $clock,DetailArtifactService $details) {
+        $this->mapper=$mapper;$this->review=$review;$this->snapshots=$snapshots;$this->evidence=$evidence;$this->previews=$previews;$this->clock=$clock;$this->details=$details;
     }
     public function create(array $payload,string $creator): array {
         if(strlen(json_encode($payload,JSON_THROW_ON_ERROR))>262144||array_diff(array_keys($payload),['idempotencyKey','members','preview'])) throw new \InvalidArgumentException('Invalid bounded check request');
@@ -24,8 +25,9 @@ class CheckJobService {
         if(!is_array($members)||!array_is_list($members)||count($members)<1||count($members)>20) throw new \InvalidArgumentException('Select 1 to 20 references');
         $seen=[];
         foreach($members as $member) {
-            if(!is_array($member)||array_diff(array_keys($member),['appRef','expected'])||!is_int($member['appRef']??null)||$member['appRef']<1||isset($seen[$member['appRef']])||!is_array($member['expected']??null)) throw new \InvalidArgumentException('Invalid or repeated check reference');
+            if(!is_array($member)||array_diff(array_keys($member),['appRef','expected','detail'])||!is_int($member['appRef']??null)||$member['appRef']<1||isset($seen[$member['appRef']])||!is_array($member['expected']??null)) throw new \InvalidArgumentException('Invalid or repeated check reference');
             $seen[$member['appRef']]=true;
+            if(array_key_exists('detail',$member)) $this->validateDetail($member['detail']);
         }
         $digest=hash('sha256',$this->canonical($payload));
         $retry=$this->mapper->retry($creator,$key,$digest);
@@ -41,7 +43,9 @@ class CheckJobService {
                 if(in_array($field,['appRef','revisionToken'],true)) continue;
                 if(!array_key_exists($field,$current)||$current[$field]!==$value) throw new EvidenceConflictException('Selected revision changed during queueing');
             }
-            $record['items'][]=['appRef'=>$ref,'snapshot'=>$snapshot,'status'=>'pending'];
+            $item=['appRef'=>$ref,'snapshot'=>$snapshot,'status'=>'pending'];
+            if(array_key_exists('detail',$member)) $item['detail']=$member['detail'];
+            $record['items'][]=$item;
         }
         // Re-read the full observed reference after preparing all snapshots.
         foreach($members as $member) {
@@ -92,25 +96,59 @@ class CheckJobService {
         $position=null;
         foreach($record['items'] as $index=>$item) { if($item['status']==='pending') { $position=$index;break; } }
         if($position===null||$record['items'][$position]['appRef']!==$appRef) throw new EvidenceConflictException('Result does not match the next selected reference');
-        $this->validateResult($result,$appRef,$record['items'][$position]['snapshot'],$record['preview']);
+        $this->validateResult($result,$appRef,$record['items'][$position]['snapshot'],$record['preview'],$record['items'][$position]['detail']??null);
         $after=$record;$after['items'][$position]=array_merge($after['items'][$position],$result);$after['completedCount']++;
         if($after['completedCount']===$after['total']) { $after['state']='completed';$after['leaseToken']='';$after['leaseUntil']=0; }
         if(!$this->save($record,$after)) throw new EvidenceConflictException('Check lease or job changed concurrently');
         return $this->publicRecord($after);
     }
-    private function validateResult(array $result,int $ref,array $snapshot,bool $preview): void {
-        if(array_diff(array_keys($result),['status','reason','evidenceId','previewId'])||!in_array($result['status']??null,['passed','corrupt','unsupported','inaccessible','limit','stale','error'],true)) throw new \InvalidArgumentException('Invalid check result');
+    private function validateResult(array $result,int $ref,array $snapshot,bool $preview,?array $detail): void {
+        if(array_diff(array_keys($result),['status','reason','evidenceId','previewId','detailId','detailStatus'])||!in_array($result['status']??null,['passed','corrupt','unsupported','inaccessible','limit','stale','error'],true)) throw new \InvalidArgumentException('Invalid check result');
         if(array_key_exists('reason',$result)&&(!is_string($result['reason'])||strlen($result['reason'])>1024)) throw new \InvalidArgumentException('Invalid bounded check reason');
-        foreach(['evidenceId','previewId'] as $field) if(array_key_exists($field,$result)&&(!is_int($result[$field])||$result[$field]<1||$result[$field]>=PHP_INT_MAX)) throw new \InvalidArgumentException('Invalid result artifact identity');
+        foreach(['evidenceId','previewId','detailId'] as $field) if(array_key_exists($field,$result)&&(!is_int($result[$field])||$result[$field]<1||$result[$field]>=PHP_INT_MAX)) throw new \InvalidArgumentException('Invalid result artifact identity');
         if($result['status']==='passed'&&!isset($result['evidenceId'])) throw new \InvalidArgumentException('Passed requires persisted evidence');
         if(isset($result['evidenceId'])) {
             $evidence=$this->evidence->getEvidence($result['evidenceId'],$ref);
             if($evidence===null||($evidence['appRef']??null)!==$ref||($result['status']!=='stale'&&($evidence['record']['report']['status']??null)!==$result['status'])||$this->canonical($evidence['record']['before']??[])!==$this->canonical($snapshot)||$this->canonical($evidence['record']['after']??[])!==$this->canonical($snapshot)) throw new \InvalidArgumentException('Evidence does not match selected reference, revision or result');
         }
+        if(array_key_exists('detailStatus',$result) || isset($result['detailId'])) {
+            if($detail===null || !in_array($result['detailStatus']??null,['available','unavailable','error'],true)
+                || (($result['detailStatus']==='available')!==isset($result['detailId']))) {
+                throw new \InvalidArgumentException('Detail status must match the requested artifact');
+            }
+        }
+        if($detail!==null && $result['status']==='passed' && !isset($result['detailStatus'])) {
+            throw new \InvalidArgumentException('A detail request requires an explicit artifact outcome');
+        }
+        if(isset($result['detailId'])) {
+            if(!isset($result['evidenceId'])) throw new \InvalidArgumentException('Detail requires persisted evidence');
+            $artifact=$this->details->getDetail($ref,$result['evidenceId'],$result['detailId']);
+            $descriptor=$artifact['record']['descriptor']??[];
+            $region=$detail;unset($region['frameIndex']);
+            if($artifact===null || ($artifact['id']??null)!==$result['detailId'] || ($artifact['appRef']??null)!==$ref
+                || ($artifact['evidenceId']??null)!==$result['evidenceId']
+                || $this->canonical($artifact['record']['boundSnapshot']??[])!==$this->canonical($snapshot)
+                || ($descriptor['scope']??null)!=='original_selected_frame_region'
+                || ($descriptor['frameIndex']??null)!==$detail['frameIndex']
+                || $this->canonical($descriptor['region']??[])!==$this->canonical($region)) {
+                throw new \InvalidArgumentException('Detail does not match selected evidence, frame or region');
+            }
+        }
         if(isset($result['previewId'])) {
             if(!$preview||!isset($result['evidenceId'])) throw new \InvalidArgumentException('Preview requires requested preview and evidence');
             $artifact=$this->previews->getPreview($ref,$result['evidenceId']);
             if($artifact===null||($artifact['id']??null)!==$result['previewId']||($artifact['appRef']??null)!==$ref||($artifact['evidenceId']??null)!==$result['evidenceId']||$this->canonical($artifact['record']['boundSnapshot']??[])!==$this->canonical($snapshot)) throw new \InvalidArgumentException('Preview does not match selected evidence');
+        }
+    }
+    private function validateDetail($detail): void {
+        if(!is_array($detail) || count($detail)!==5 || array_diff(['frameIndex','x','y','width','height'],array_keys($detail))) {
+            throw new \InvalidArgumentException('Invalid detail selection');
+        }
+        foreach($detail as $field=>$value) {
+            $dimension=in_array($field,['width','height'],true);
+            if(!is_int($value) || $value<($dimension?1:0) || $value>($dimension?512:2147483647)) {
+                throw new \InvalidArgumentException('Invalid bounded frame or region');
+            }
         }
     }
     private function active(array $record,string $token): bool {

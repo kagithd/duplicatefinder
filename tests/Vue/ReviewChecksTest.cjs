@@ -130,3 +130,27 @@ test('failed job requests leave draft and last known job intact and allow explic
  await checks.openJob(job().jobId);assert.equal(checks.record.state,'running');assert.equal(checks.selection[0].expected.etag,'old')
  dispose(vm)
 })
+
+test('native detail selection is explicit, bounded and preserved in the submitted request',async()=>{
+ const sent=[];const vm=mount(baseGet,async(url,body)=>{sent.push(body.payload);return {data:job()}})
+ await tick();vm.selectGroup(hashA);await tick();const checks=vm.$refs.checks;checks.choose(vm.members[0])
+ checks.toggleDetail(checks.selection[0],true);await tick()
+ assert.ok(checks.$el.querySelector('[data-detail-frame]'))
+ checks.selection[0].detail={frameIndex:1,x:4,y:5,width:16,height:16}
+ await checks.submit()
+ assert.deepEqual(sent[0].members[0].detail,{frameIndex:1,x:4,y:5,width:16,height:16})
+ checks.choose(member());checks.toggleDetail(checks.selection[0],true);checks.selection[0].detail.width=513
+ await checks.submit();assert.equal(sent.length,1);assert.ok(checks.error);dispose(vm)
+})
+test('detail result is explicitly loaded with exact job and artifact binding; other frames are rejected',async()=>{
+ const item={appRef:1,snapshot:member(),status:'passed',evidenceId:7,detailId:31,detailStatus:'available',detail:{frameIndex:1,x:4,y:5,width:1,height:1}}
+ const bytes=Buffer.alloc(33);Buffer.from([137,80,78,71,13,10,26,10]).copy(bytes);bytes.writeUInt32BE(13,8);bytes.write('IHDR',12);bytes.writeUInt32BE(1,16);bytes.writeUInt32BE(1,20);bytes[24]=8;bytes[25]=2
+ const artifact={id:31,appRef:1,evidenceId:7,nativeFreshness:'not_rechecked',validityScope:'original_selected_frame_region',visualAssessment:'not_provided',record:{schemaVersion:1,sha256:'a'.repeat(64),descriptor:{status:'available',scope:'original_selected_frame_region',mime:'image/png',frameIndex:1,sourceWidth:1000,sourceHeight:800,region:{x:4,y:5,width:1,height:1},width:1,height:1,rasterMode:'RGB',imageBase64:bytes.toString('base64')}}}
+ let requests=0
+ const vm=mount(async(url)=>{if(url.includes('/details/')){requests++;return {data:artifact}}return baseGet(url)})
+ await tick();const checks=vm.$refs.checks;checks.record={...job('completed'),items:[item]};await tick()
+ assert.equal(requests,0);const load=checks.$el.querySelector('[data-detail-load]');assert.ok(load);load.click();await tick()
+ assert.equal(requests,1);assert.ok(checks.$el.querySelector('[data-detail-image]'));assert.match(checks.$el.textContent,/1000/)
+ artifact.record.descriptor.frameIndex=0;await checks.loadDetail(item);await tick()
+ assert.equal(checks.$el.querySelector('[data-detail-image]'),null);assert.ok(checks.error);dispose(vm)
+})

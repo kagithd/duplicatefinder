@@ -2,7 +2,7 @@
 namespace OCA\DuplicateFinder\Tests\Unit\Service;
 
 use OCA\DuplicateFinder\Db\CheckJobMapper;
-use OCA\DuplicateFinder\Service\{CheckJobService,ReviewService,EvidenceSnapshotService,EvidenceService,PreviewArtifactService};
+use OCA\DuplicateFinder\Service\{CheckJobService,ReviewService,EvidenceSnapshotService,EvidenceService,PreviewArtifactService,DetailArtifactService};
 use OCA\DuplicateFinder\Exception\EvidenceConflictException;
 use OCP\AppFramework\Utility\ITimeFactory;
 use PHPUnit\Framework\TestCase;
@@ -17,10 +17,11 @@ class CheckJobServiceTest extends TestCase {
         $mapper=$this->createMock(CheckJobMapper::class);
         $evidence=$this->createMock(EvidenceService::class);
         $previews=$this->createMock(PreviewArtifactService::class);
-        $service=new CheckJobService($mapper,$review,new EvidenceSnapshotService($review),$evidence,$previews,$clock);
+        $details=$this->createMock(DetailArtifactService::class);
+        $service=new CheckJobService($mapper,$review,new EvidenceSnapshotService($review),$evidence,$previews,$clock,$details);
         $payload=['idempotencyKey'=>'request-1','members'=>[['appRef'=>1,'expected'=>$ref]],'preview'=>true];
         $mapper->method('insert')->willReturnArgument(3);
-        return [$service,$mapper,$payload,$evidence,$previews];
+        return [$service,$mapper,$payload,$evidence,$previews,$details];
     }
     public function testSelectionQueuesMetadataSnapshotWithoutExposingLease(): void {
         [$s,$m,$p]=$this->fixture();
@@ -162,4 +163,50 @@ class CheckJobServiceTest extends TestCase {
         $result=$s->completeItem($job['jobId'],str_repeat('a',64),1,['status'=>'stale','evidenceId'=>3,'previewId'=>5,'reason'=>'native_revision_changed_after_import']);
         $this->assertSame('stale',$result['items'][0]['status']);$this->assertSame(3,$result['items'][0]['evidenceId']);
     }
+    private function detail(): array { return ['frameIndex'=>1,'x'=>4,'y'=>5,'width'=>16,'height'=>16]; }
+    public function testDetailSelectionPersistsThroughClaim(): void {
+        [$s,$m,$p]=$this->fixture();$p['members'][0]['detail']=$this->detail();
+        $job=$s->create($p,'admin');$this->assertSame($this->detail(),$job['items'][0]['detail']);$job['rowVersion']=0;
+        $m->method('candidates')->willReturn([$job]);$m->method('compareAndSwap')->willReturn(true);
+        $this->assertSame($this->detail(),$s->claim()['items'][0]['detail']);
+    }
+    public function testRejectsInvalidDetailBeforeQueueing(): void {
+        foreach([null,[],['frameIndex'=>true],['x'=>-1],['height'=>513],['width'=>0],['path'=>'/native']] as $change) {
+            [$s,$m,$p]=$this->fixture();
+            $p['members'][0]['detail']=is_array($change)&&$change!==[]?array_replace($this->detail(),$change):$change;
+            $m->expects($this->never())->method('insert');
+            try{$s->create($p,'admin');$this->fail('Invalid detail queued');}
+            catch(\InvalidArgumentException $e){$this->assertNotSame('',$e->getMessage());}
+        }
+    }
+    public function testDetailCompletionRequiresExactRequestedFrameRegionAndBinding(): void {
+        foreach(['match','frame','region','snapshot','foreign','unrequested'] as $case) {
+            [$s,$m,$p,$e,$v,$d]=$this->fixture();
+            if($case!=='unrequested') $p['members'][0]['detail']=$this->detail();
+            $job=$this->running($s,$p);$snapshot=$job['items'][0]['snapshot'];
+            $m->method('find')->willReturn($job);$m->method('compareAndSwap')->willReturn(true);
+            $e->method('getEvidence')->willReturn(['id'=>3,'appRef'=>1,'record'=>['before'=>$snapshot,'after'=>$snapshot,'report'=>['status'=>'passed']]]);
+            $artifact=['id'=>9,'appRef'=>1,'evidenceId'=>3,'record'=>['boundSnapshot'=>$snapshot,'descriptor'=>[
+                'scope'=>'original_selected_frame_region','frameIndex'=>1,'region'=>['x'=>4,'y'=>5,'width'=>16,'height'=>16]]]];
+            if($case==='frame') $artifact['record']['descriptor']['frameIndex']=0;
+            if($case==='region') $artifact['record']['descriptor']['region']['x']=5;
+            if($case==='snapshot') $artifact['record']['boundSnapshot']['etag']='wrong';
+            if($case==='foreign') $artifact['appRef']=2;
+            $d->method('getDetail')->willReturn($artifact);
+            try {
+                $result=$s->completeItem($job['jobId'],str_repeat('a',64),1,['status'=>'passed','evidenceId'=>3,'detailId'=>9,'detailStatus'=>'available']);
+                $this->assertSame('match',$case);$this->assertSame(9,$result['items'][0]['detailId']);
+            } catch(\InvalidArgumentException $error) { $this->assertNotSame('match',$case,$error->getMessage()); }
+        }
+    }
+    public function testMissingDetailIsNotInventedFromPassedDecoder(): void {
+        [$s,$m,$p,$e]=$this->fixture();$p['members'][0]['detail']=$this->detail();
+        $job=$this->running($s,$p);$snapshot=$job['items'][0]['snapshot'];
+        $m->method('find')->willReturn($job);$m->method('compareAndSwap')->willReturn(true);
+        $e->method('getEvidence')->willReturn(['id'=>3,'appRef'=>1,'record'=>['before'=>$snapshot,'after'=>$snapshot,'report'=>['status'=>'passed']]]);
+        $result=$s->completeItem($job['jobId'],str_repeat('a',64),1,['status'=>'passed','evidenceId'=>3,'detailStatus'=>'unavailable']);
+        $this->assertSame('unavailable',$result['items'][0]['detailStatus']);
+        $this->assertArrayNotHasKey('detailId',$result['items'][0]);
+    }
+
 }

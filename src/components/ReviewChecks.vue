@@ -9,6 +9,17 @@
 		<ol>
 			<li v-for="item in selection" :key="item.appRef">
 				<p>{{ item.expected.indexOwner }} · {{ item.expected.indexPath }} · {{ item.appRef }}</p>
+
+                <label><input type="checkbox" :checked="!!item.detail" :disabled="busy" @change="toggleDetail(item, $event.target.checked)">{{ t('duplicatefinder', 'Request a native-resolution detail') }}</label>
+                <fieldset v-if="item.detail" class="review-checks__detail-fields" :disabled="busy">
+                    <legend>{{ t('duplicatefinder', 'Selected frame and pixel region') }}</legend>
+                    <label>{{ t('duplicatefinder', 'Frame or page (starting at 1)') }}<input data-detail-frame type="number" min="1" max="2147483648" :value="item.detail.frameIndex + 1" @input="item.detail.frameIndex = Number($event.target.value) - 1"></label>
+                    <label>{{ t('duplicatefinder', 'Left (pixels)') }}<input v-model.number="item.detail.x" type="number" min="0" max="2147483647"></label>
+                    <label>{{ t('duplicatefinder', 'Top (pixels)') }}<input v-model.number="item.detail.y" type="number" min="0" max="2147483647"></label>
+                    <label>{{ t('duplicatefinder', 'Width (1–512 pixels)') }}<input v-model.number="item.detail.width" type="number" min="1" max="512"></label>
+                    <label>{{ t('duplicatefinder', 'Height (1–512 pixels)') }}<input v-model.number="item.detail.height" type="number" min="1" max="512"></label>
+                    <p>{{ t('duplicatefinder', 'Coordinates start at zero in the oriented original. Regions outside the image are unavailable. Every request checks the original again and creates its own finding.') }}</p>
+                </fieldset>
 				<button type="button" :disabled="busy" @click="remove(item.appRef)">
 					{{ t('duplicatefinder', 'Remove from check selection') }}
 				</button>
@@ -70,6 +81,18 @@
 					<p v-if="item.reason">
 						{{ t('duplicatefinder', 'Technical reason') }}: <code>{{ item.reason }}</code>
 					</p>
+
+                    <template v-if="item.detail">
+                        <p>{{ t('duplicatefinder', 'Requested detail') }}: {{ t('duplicatefinder', 'Frame or page') }} {{ item.detail.frameIndex + 1 }} · x={{ item.detail.x }}, y={{ item.detail.y }} · {{ item.detail.width }} × {{ item.detail.height }} px</p>
+                        <p v-if="item.status !== 'pending' && item.detailStatus !== 'available'">{{ t('duplicatefinder', 'No detail image is available for this request. A successful decode alone does not produce a usable detail.') }}</p>
+                        <button v-if="item.detailId && item.evidenceId" type="button" data-detail-load :disabled="busy" @click="loadDetail(item)">{{ t('duplicatefinder', 'Load historical detail image') }}</button>
+                        <figure v-if="detailImages[detailKey(item)]">
+                            <div class="review-checks__detail-viewport" tabindex="0" :aria-label="t('duplicatefinder', 'Native detail pixels; scroll to inspect the full region')">
+                            <img data-detail-image :src="detailImages[detailKey(item)].source" :width="item.detail.width" :height="item.detail.height" :alt="t('duplicatefinder', 'Historical selected-frame detail')" @error="detailFailed(item)">
+                            </div>
+                            <figcaption>{{ t('duplicatefinder', 'Oriented source dimensions') }}: {{ detailImages[detailKey(item)].descriptor.sourceWidth }} × {{ detailImages[detailKey(item)].descriptor.sourceHeight }} px. {{ t('duplicatefinder', 'Historical pixels: the current original and visual content have not been verified by viewing this region.') }}</figcaption>
+                        </figure>
+                    </template>
 					<p v-if="item.evidenceId">
 						{{ t('duplicatefinder', 'Finding IDs') }}: {{ item.evidenceId }}
 					</p>
@@ -96,9 +119,60 @@ export default {
 	name: 'ReviewChecks',
 	props: { visibleRefs: { type: Array, default: () => [] } },
 	data() {
-		return { selection: [], preview: true, signature: '', retryKey: '', busy: false, error: '', jobs: [], nextCursor: null, record: null }
+		return { selection: [], preview: true, signature: '', retryKey: '', busy: false, error: '', jobs: [], nextCursor: null, record: null, detailImages: {}, detailGeneration: 0 }
 	},
-	methods: {
+
+    watch: {
+        record() { this.detailGeneration++; this.detailImages = {} },
+    },
+    beforeDestroy() { this.detailGeneration++ },
+    methods: {
+        toggleDetail(item, enabled) {
+            if (this.busy) return
+            if (enabled) this.$set(item, 'detail', { frameIndex: 0, x: 0, y: 0, width: 128, height: 128 })
+            else this.$delete(item, 'detail')
+        },
+        validDetail(value) {
+            return value && ['frameIndex', 'x', 'y', 'width', 'height'].every(field =>
+                Number.isInteger(value[field]) && value[field] >= (['width', 'height'].includes(field) ? 1 : 0)
+                && value[field] <= (['width', 'height'].includes(field) ? 512 : 2147483647))
+        },
+        detailKey(item) { return item.appRef + ':' + item.evidenceId + ':' + item.detailId },
+        detailFailed(item) { this.$delete(this.detailImages, this.detailKey(item)); this.error = this.t('duplicatefinder', 'Detail image could not be displayed.') },
+        async loadDetail(item) {
+            if (this.busy || !this.record?.items.includes(item)) return
+            const record = this.record
+            const generation = ++this.detailGeneration
+            const key = this.detailKey(item)
+            this.$delete(this.detailImages, key)
+            this.busy = true; this.error = ''
+            try {
+                const { data } = await axios.get(generateUrl('/apps/duplicatefinder/api/review/members/' + item.appRef + '/evidence/' + item.evidenceId + '/details/' + item.detailId))
+                if (generation !== this.detailGeneration || this.record !== record) return
+                const d = data.record?.descriptor
+                if (data.id !== item.detailId || data.appRef !== item.appRef || data.evidenceId !== item.evidenceId
+                    || data.nativeFreshness !== 'not_rechecked' || data.validityScope !== 'original_selected_frame_region'
+                    || data.visualAssessment !== 'not_provided' || data.record?.schemaVersion !== 1
+                    || !/^[a-f0-9]{64}$/.test(data.record?.sha256 || '') || !d
+                    || d.status !== 'available' || d.scope !== 'original_selected_frame_region' || d.mime !== 'image/png'
+                    || !['RGB', 'RGBA'].includes(d.rasterMode) || d.frameIndex !== item.detail.frameIndex
+                    || !this.validDetail(item.detail) || !d.region
+                    || !['x', 'y', 'width', 'height'].every(field => d.region[field] === item.detail[field])
+                    || d.width !== item.detail.width || d.height !== item.detail.height
+                    || !['sourceWidth', 'sourceHeight'].every(field => Number.isInteger(d[field]) && d[field] > 0 && d[field] <= 2147483647)
+                    || d.region.x + d.width > d.sourceWidth || d.region.y + d.height > d.sourceHeight
+                    || typeof d.imageBase64 !== 'string' || d.imageBase64.length > 2796204) throw Error('Invalid detail')
+                const bytes = atob(d.imageBase64)
+                const uint32 = offset => ((bytes.charCodeAt(offset) * 16777216) + (bytes.charCodeAt(offset + 1) << 16) + (bytes.charCodeAt(offset + 2) << 8) + bytes.charCodeAt(offset + 3))
+                if (bytes.length < 33 || bytes.length > 2097152 || btoa(bytes) !== d.imageBase64
+                    || bytes.slice(0, 8) !== '\x89PNG\r\n\x1a\n' || bytes.slice(12, 16) !== 'IHDR'
+                    || uint32(16) !== d.width || uint32(20) !== d.height || bytes.charCodeAt(24) !== 8
+                    || bytes.charCodeAt(25) !== (d.rasterMode === 'RGB' ? 2 : 6)) throw Error('Invalid PNG')
+                this.$set(this.detailImages, key, { descriptor: d, source: 'data:image/png;base64,' + d.imageBase64 })
+            } catch (error) {
+                if (generation === this.detailGeneration) this.error = this.t('duplicatefinder', 'Detail image could not be loaded or did not match the requested region.')
+            } finally { if (generation === this.detailGeneration) this.busy = false }
+        },
 		choose(member) {
 			if (this.busy || this.selection.some(item => item.appRef === member.id)) return
 			if (this.selection.length >= 20) { this.error = this.t('duplicatefinder', 'Select at most 20 references per check job.'); return }
@@ -108,7 +182,11 @@ export default {
 		discard() { if (this.busy) return; this.selection = []; this.signature = ''; this.retryKey = ''; this.error = '' },
 		async submit() {
 			if (this.busy || !this.selection.length) return
-			const payload = { members: copy(this.selection), preview: this.preview }
+			if (this.selection.some(item => item.detail && !this.validDetail(item.detail))) {
+                this.error = this.t('duplicatefinder', 'Use whole pixel coordinates, a frame starting at 1, and dimensions from 1 to 512.')
+                return
+            }
+            const payload = { members: copy(this.selection), preview: this.preview }
 			const signature = JSON.stringify(payload)
 			if (signature !== this.signature) { this.signature = signature; this.retryKey = globalThis.crypto?.randomUUID?.() || Date.now().toString(36) + '-' + Math.random().toString(36).slice(2) }
 			payload.idempotencyKey = this.retryKey
@@ -153,4 +231,12 @@ h2, h3 { font-weight: 600; margin: 12px 0; }
 li { margin: 12px 0; }
 .review-checks__job { margin-top: 16px; border-top: 1px solid var(--color-border); }
 button:focus-visible { outline: 2px solid var(--color-primary-element); outline-offset: 2px; }
+
+.review-checks__detail-fields { display: flex; flex-wrap: wrap; gap: 12px; padding: 12px; border: 1px solid var(--color-border); }
+.review-checks__detail-fields label { min-width: 0; }
+.review-checks__detail-fields input { display: block; width: 130px; max-width: 100%; }
+.review-checks__detail-fields p { flex-basis: 100%; }
+.review-checks__detail-viewport { max-width: 100%; max-height: 70vh; overflow: auto; }
+[data-detail-image] { max-width: none; background: repeating-conic-gradient(#ddd 0% 25%, #fff 0% 50%) 0 0 / 16px 16px; }
+figcaption { overflow-wrap: anywhere; margin: 8px 0; }
 </style>
