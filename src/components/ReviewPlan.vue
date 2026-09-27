@@ -72,7 +72,7 @@
 		</button>
 		<template v-if="record">
 			<h3>{{ t('duplicatefinder', 'Exact saved revision') }} {{ record.planId }} / {{ record.revision }}</h3>
-			<p>{{ record.creator }} · {{ record.createdAt }} · {{ t('duplicatefinder', 'Not executable') }}</p>
+			<p>{{ record.creator }} · {{ timestamp(record.createdAt) }} · {{ t('duplicatefinder', 'Not executable') }}</p>
 			<label>{{ t('duplicatefinder', 'Revision') }}<input v-model.number="revisionInput" type="number" min="1"></label>
 			<button type="button" :disabled="busy" @click="openRevision(record.planId, revisionInput)">
 				{{ t('duplicatefinder', 'Read revision') }}
@@ -83,7 +83,39 @@
 			<button type="button" :disabled="busy || decisions.length > 0" @click="editRevision">
 				{{ t('duplicatefinder', 'Edit as new revision') }}
 			</button>
-			<pre>{{ JSON.stringify(record, null, 2) }}</pre>
+			<section data-saved-summary :aria-label="t('duplicatefinder', 'Saved decisions')">
+				<p>{{ t('duplicatefinder', 'Saved decisions') }} · {{ t('duplicatefinder', 'Keep') }}: {{ countAction('keep') }} · {{ t('duplicatefinder', 'Propose removal') }}: {{ countAction('remove') }} · {{ t('duplicatefinder', 'Exclude from proposal') }}: {{ countAction('exclude') }}</p>
+				<p><strong>{{ t('duplicatefinder', 'Historical record only. Current file revisions and indexed hashes have not been rechecked. No execution authorization.') }}</strong></p>
+				<p>{{ t('duplicatefinder', 'Sharing consequences have not been determined. Multiple references may point to the same physical file; counts do not represent recoverable space.') }}</p>
+				<p>{{ t('duplicatefinder', 'Proposal note') }}: {{ record.note || '—' }}</p>
+				<p>{{ t('duplicatefinder', 'Group hash') }}: <code>{{ record.hash }}</code></p>
+				<p>{{ t('duplicatefinder', 'Index actions') }}: {{ (record.indexActions || []).length }}</p>
+				<ol>
+					<li v-for="member in record.members" :key="member.appRef" data-saved-member>
+						<h4>{{ actionLabel(member.action) }} · {{ t('duplicatefinder', 'Reference') }} {{ member.appRef }}</h4>
+						<dl>
+							<dt>{{ t('duplicatefinder', 'Observed owner') }}</dt><dd>{{ observation(member).owner || '—' }}</dd>
+							<dt>{{ t('duplicatefinder', 'Indexed user') }}</dt><dd>{{ observation(member).indexOwner || '—' }}</dd>
+							<dt>{{ t('duplicatefinder', 'Indexed path') }}</dt><dd>{{ observation(member).indexPath || '—' }}</dd>
+							<dt>{{ t('duplicatefinder', 'Observed path') }}</dt><dd>{{ observation(member).path || '—' }}</dd>
+							<dt>{{ t('duplicatefinder', 'Storage / node ID') }}</dt><dd>{{ observation(member).storageId || '—' }} / {{ observation(member).nodeId || '—' }}</dd>
+						</dl>
+						<p>{{ t('duplicatefinder', 'Reason') }}: {{ member.reason || '—' }}</p>
+						<p>{{ assessmentLabel((member.manualAssessment || {}).status) }} · {{ (member.manualAssessment || {}).note || '—' }}</p>
+						<p v-if="member.manualAssessment && member.manualAssessment.source">{{ t('duplicatefinder', 'Assessed historical preview') }}: {{ member.manualAssessment.source.previewId }} · {{ t('duplicatefinder', 'Finding IDs') }}: {{ member.manualAssessment.source.evidenceId }} · {{ member.manualAssessment.source.scope }}</p>
+						<p v-if="!(member.evidence || []).length">{{ t('duplicatefinder', 'No technical finding selected') }}</p>
+						<ul v-else>
+							<li v-for="finding in member.evidence" :key="finding.id">
+								<p>{{ t('duplicatefinder', 'Finding IDs') }}: {{ finding.id }} · {{ findingLabel(finding) }} · {{ timestamp(finding.createdAt) }}</p>
+								<p>{{ t('duplicatefinder', 'Saved finding usability') }}: {{ finding.usability || '—' }} · {{ finding.reason || '—' }}</p>
+								<p>{{ t('duplicatefinder', 'Check scope') }}: {{ reportOf(finding).scope || '—' }} · {{ t('duplicatefinder', 'Decoded frames') }}: {{ reportOf(finding).frames_decoded == null ? '—' : reportOf(finding).frames_decoded }}</p>
+								<p>{{ t('duplicatefinder', 'Reason') }}: {{ reportOf(finding).reason || '—' }}</p>
+							</li>
+						</ul>
+					</li>
+				</ol>
+			</section>
+			<details><summary>{{ t('duplicatefinder', 'Technical JSON record') }}</summary><pre>{{ JSON.stringify(record, null, 2) }}</pre></details>
 		</template>
 	</section>
 </template>
@@ -102,6 +134,20 @@ export default {
 	mounted() { window.addEventListener('beforeunload', this.guardUnload) },
 	beforeDestroy() { window.removeEventListener('beforeunload', this.guardUnload) },
 	methods: {
+		observation(member) { return member.observed || member.expected || {} },
+		countAction(action) { return (this.record.members || []).filter(member => member.action === action).length },
+		actionLabel(action) { return this.t('duplicatefinder', { keep: 'Keep', remove: 'Propose removal', exclude: 'Exclude from proposal' }[action] || 'Unknown action') },
+		timestamp(seconds) {
+			if (typeof seconds !== 'number' || !Number.isFinite(seconds)) return '—'
+			const date = new Date(seconds * 1000)
+			return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString()
+		},
+		reportOf(finding) { return finding.record?.report || {} },
+		findingLabel(finding) {
+			const report = this.reportOf(finding)
+			const labels = { passed: report.scope === 'original_all_exposed_frames' ? 'All exposed frames decoded' : 'Check completed', corrupt: 'Decoder reported corruption', unsupported: 'Format not supported', inaccessible: 'Original inaccessible', limit: 'Check limit reached', stale: 'File revision changed', error: 'Check failed' }
+			return this.t('duplicatefinder', labels[report.status] || 'Unknown finding')
+		},
 		assessmentLabel(status) {
 			return this.t('duplicatefinder', status === 'content_visible' ? 'Content visible in this preview' : status === 'problem' ? 'Problem visible in this preview' : 'Visual content has not been assessed.')
 		},
@@ -182,5 +228,13 @@ p, label { display: block; margin: 8px 0; overflow-wrap: anywhere; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 500px; overflow: auto; }
 input, textarea, select { max-width: 100%; }
 button { margin: 4px; }
+[data-saved-member] { border-top: 1px solid var(--color-border); padding: 16px 0; }
+[data-saved-member] dl { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 8px 16px; }
+[data-saved-member] dt, [data-saved-member] dd { float: none; width: auto; min-width: 0; }
+dt { font-weight: 600; }
+@media (max-width: 700px) { [data-saved-member] dl { grid-template-columns: minmax(0, 1fr); gap: 4px; } }
+dd { margin: 0 0 8px; overflow-wrap: anywhere; white-space: pre-wrap; }
+h4 { font-weight: 600; margin-bottom: 12px; }
+summary { cursor: pointer; padding: 12px 0; }
 h2, h3 { font-weight: 600; margin: 12px 0; }
 </style>
