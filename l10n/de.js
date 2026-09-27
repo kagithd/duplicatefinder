@@ -1,6 +1,13 @@
 OC.L10N.register(
     "duplicatefinder",
     {
+    "This assessment covers only this historical frame region. First select the same finding in a proposal." : "Diese Bewertung gilt nur für diesen historischen Bildausschnitt. Wählen Sie zuerst denselben Befund in einem Vorschlag aus.",
+    "Content visible in this detail" : "Inhalt in diesem Ausschnitt erkennbar",
+    "Problem visible in this detail" : "Problem in diesem Ausschnitt erkennbar",
+    "Assessed historical detail" : "Bewerteter historischer Ausschnitt",
+    "Detail assessment copied to the proposal draft. Save a revision to retain it." : "Detailbewertung in den Vorschlagsentwurf übernommen. Speichern Sie eine Revision, um sie festzuhalten.",
+    "Assessment not copied. Select this reference with the same finding in an editable proposal first; existing findings are not replaced." : "Bewertung nicht übernommen. Wählen Sie diese Fundstelle mit demselben Befund zuerst in einem bearbeitbaren Vorschlag aus. Bestehende Befunde werden nicht ersetzt.",
+
     "Image comparison": "Bildvergleich",
     "Compare up to four historical first-frame previews. Selection stays across pages. This does not verify current originals or assess other frames.": "Vergleichen Sie bis zu vier gespeicherte Vorschauen des ersten Frames. Die Auswahl bleibt beim Blättern erhalten. Aktuelle Originale und andere Frames werden dadurch nicht geprüft.",
     "Load a successful finding, then add its reference to the comparison.": "Laden Sie einen erfolgreichen Prüfbefund und nehmen Sie seine Fundstelle in den Vergleich auf.",

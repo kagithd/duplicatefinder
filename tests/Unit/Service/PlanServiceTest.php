@@ -9,7 +9,7 @@ use OCA\DuplicateFinder\Db\ReviewMapper;
 use OCA\DuplicateFinder\Exception\EvidenceConflictException;
 use PHPUnit\Framework\TestCase;
 class PlanServiceTest extends TestCase  {
-    private function fixture(array $overrides = [], bool $alias = false, ?string $candidate = null, ?EvidenceService $evidence = null, ?\OCA\DuplicateFinder\Service\PreviewArtifactService $previews = null, ?PlanShareService $sharing = null): array  {
+    private function fixture(array $overrides = [], bool $alias = false, ?string $candidate = null, ?EvidenceService $evidence = null, ?\OCA\DuplicateFinder\Service\PreviewArtifactService $previews = null, ?PlanShareService $sharing = null, ?\OCA\DuplicateFinder\Service\DetailArtifactService $details = null): array  {
         $r=['id'=>1,'indexOwner'=>'alice','indexPath'=>'/alice/files/a','owner'=>'alice','path'=>'/alice/files/a','storageId'=>'home::alice','nodeId'=>4,'etag'=>'v1','size'=>12,'mtime'=>100,'availability'=>'available','candidateHash'=>str_repeat('a',64)];
         $r = array_merge($r, $overrides);
         $review=$this->createMock(ReviewService::class);
@@ -17,7 +17,7 @@ class PlanServiceTest extends TestCase  {
         $index=$this->createMock(ReviewMapper::class);
         $index->method('candidateHash')->willReturn($candidate ?? str_repeat('a',64));
         $mapper=$this->createMock(PlanMapper::class);
-        $service=new PlanService($mapper,$review,$index,$evidence ?? $this->createMock(EvidenceService::class), $previews ?? $this->createMock(\OCA\DuplicateFinder\Service\PreviewArtifactService::class), $sharing ?? $this->createMock(PlanShareService::class));
+        $service=new PlanService($mapper,$review,$index,$evidence ?? $this->createMock(EvidenceService::class), $previews ?? $this->createMock(\OCA\DuplicateFinder\Service\PreviewArtifactService::class), $sharing ?? $this->createMock(PlanShareService::class), $details ?? $this->createMock(\OCA\DuplicateFinder\Service\DetailArtifactService::class));
         $member=['appRef'=>1,'action'=>'keep','expected'=>$r,'evidenceIds'=>[],'manualAssessment'=>['status'=>'not_assessed','note'=>''],'reason'=>''];
         return [$service,$mapper,['hash'=>str_repeat('a',64),'members'=>[$member],'indexActions'=>[],'note'=>'','idempotencyKey'=>'request-1']];
     }
@@ -141,7 +141,7 @@ class PlanServiceTest extends TestCase  {
         if ($conflict) $mapper->expects($this->never())->method('save');
         else $mapper->expects($this->once())->method('save')->willReturnCallback(static fn($id,$prev,$key,$digest,$record) => $record);
         $service = new PlanService($mapper,$review,$index,$this->createMock(EvidenceService::class),
-            $this->createMock(\OCA\DuplicateFinder\Service\PreviewArtifactService::class), $this->createMock(PlanShareService::class));
+            $this->createMock(\OCA\DuplicateFinder\Service\PreviewArtifactService::class), $this->createMock(PlanShareService::class), $this->createMock(\OCA\DuplicateFinder\Service\DetailArtifactService::class));
         $selection = static fn($ref,$action,$observed) => ['appRef'=>$ref,'action'=>$action,'expected'=>$observed,
             'evidenceIds'=>[],'manualAssessment'=>['status'=>'not_assessed','note'=>''],'reason'=>''];
         $payload = ['hash'=>str_repeat('a',64),'members'=>[$selection(1,$firstAction,$owner),$selection(2,$secondAction,$recipient)],
@@ -235,4 +235,59 @@ class PlanServiceTest extends TestCase  {
             catch (\InvalidArgumentException $error) { $this->assertNotEmpty($error->getMessage()); }
         }
     }
+
+    private function detailFixture(array $changes = []): array {
+        $details = $this->createMock(\OCA\DuplicateFinder\Service\DetailArtifactService::class);
+        $evidence = $this->createMock(EvidenceService::class);
+        $evidence->method('getEvidence')->willReturn(['id'=>7, 'appRef'=>1]);
+        [$service,$mapper,$payload] = $this->fixture([],false,null,$evidence,null,null,$details);
+        $region=['x'=>256,'y'=>128,'width'=>512,'height'=>512];
+        $snapshot=$payload['members'][0]['expected'];
+        $snapshot['appRef']=1;
+        $artifact=['id'=>12,'appRef'=>1,'evidenceId'=>7,'validityScope'=>'original_selected_frame_region',
+            'record'=>['sha256'=>str_repeat('b',64),'boundSnapshot'=>$snapshot,
+                'descriptor'=>['frameIndex'=>1,'region'=>$region]]];
+        $details->method('getDetail')->with(1,7,12)->willReturn(array_replace_recursive($artifact,$changes));
+        $payload['members'][0]['evidenceIds']=[7];
+        $payload['members'][0]['manualAssessment']=['status'=>'content_visible','note'=>'Only this region',
+            'source'=>['kind'=>'original_detail','evidenceId'=>7,'detailId'=>12,'sha256'=>str_repeat('b',64),
+                'scope'=>'original_selected_frame_region','frameIndex'=>1,'region'=>$region]];
+        return [$service,$mapper,$payload];
+    }
+    public function testManualDetailPreservesExactRegionAndHistoricalScope(): void {
+        [$service,$mapper,$payload]=$this->detailFixture();
+        $mapper->method('save')->willReturnCallback(fn($id,$prev,$key,$digest,$record)=>$record);
+        $saved=$service->create($payload,'reviewer');
+        $this->assertSame($payload['members'][0]['manualAssessment'],$saved['members'][0]['manualAssessment']);
+        $this->assertFalse($saved['executable']);
+        $this->assertContains('native_revision_not_rechecked',$saved['limitations']);
+    }
+    public function testManualDetailRejectsChangedArtifactOrRevision(): void {
+        foreach ([['id'=>13],['appRef'=>2],['evidenceId'=>8],['record'=>['sha256'=>str_repeat('c',64)]],
+            ['record'=>['boundSnapshot'=>['etag'=>'old']]],['validityScope'=>'all_frames'],
+            ['record'=>['descriptor'=>['frameIndex'=>0]]],['record'=>['descriptor'=>['region'=>['x'=>0]]]]] as $change) {
+            [$service,$mapper,$payload]=$this->detailFixture($change);
+            $mapper->expects($this->never())->method('save');
+            try { $service->create($payload,'reviewer'); $this->fail('Mismatched detail accepted'); }
+            catch (EvidenceConflictException $error) { $this->assertNotEmpty($error->getMessage()); }
+        }
+    }
+    public function testManualDetailRejectsMalformedOrUnselectedSource(): void {
+        foreach (['unselected','unassessed','extra','frame','width','id','scope'] as $change) {
+            [$service,$mapper,$payload]=$this->detailFixture();
+            $manual=&$payload['members'][0]['manualAssessment'];
+            if ($change==='unselected') $payload['members'][0]['evidenceIds']=[];
+            if ($change==='unassessed') $manual['status']='not_assessed';
+            if ($change==='extra') $manual['source']['path']='/arbitrary';
+            if ($change==='frame') $manual['source']['frameIndex']='1';
+            if ($change==='width') $manual['source']['region']['width']=513;
+            if ($change==='id') $manual['source']['detailId']='12';
+            if ($change==='scope') $manual['source']['scope']='all_frames';
+            $mapper->expects($this->never())->method('save');
+            try { $service->create($payload,'reviewer'); $this->fail('Invalid detail source accepted'); }
+            catch (\InvalidArgumentException $error) { $this->assertNotEmpty($error->getMessage()); }
+            unset($manual);
+        }
+    }
+
 }

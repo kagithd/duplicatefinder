@@ -164,7 +164,7 @@
 			</section>
 		</div>
 		<ReviewComparison ref="comparison" />
-		<ReviewChecks ref="checks" :visible-refs="members.map(member => member.id)" @load-evidence="loadEvidence({ id: $event })" />
+		<ReviewChecks ref="checks" @assessed-detail="assessDetail" :visible-refs="members.map(member => member.id)" @load-evidence="loadEvidence({ id: $event })" />
 		<p v-if="referenceLoading" role="status">{{ t('duplicatefinder', 'Loading current reference') }}</p>
         <p v-if="referenceError" role="alert">{{ referenceError }}</p>
         <p v-if="openedReference">{{ t('duplicatefinder', 'Opened from a file search. This group is independent of the group list filters.') }} {{ openedReference }}</p>
@@ -219,6 +219,12 @@ export default {
 		this.memberRequest++
 	},
 	methods: {
+        assessDetail(assessment) {
+            const accepted = this.$refs.plan?.assessDetail(assessment)
+            this.$refs.checks.setDetailNotice(assessment, this.t('duplicatefinder', accepted
+                ? 'Detail assessment copied to the proposal draft. Save a revision to retain it.'
+                : 'Assessment not copied. Select this reference with the same finding in an editable proposal first; existing findings are not replaced.'))
+        },
 		applyFilters() { this.appliedOwner = this.filterOwner; this.appliedFolder = this.filterFolder; this.loadGroups('') },
 		resetFilters() { this.filterOwner = ''; this.filterFolder = ''; this.applyFilters() },
 		reportOf(entry) {

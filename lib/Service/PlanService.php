@@ -11,13 +11,15 @@ class PlanService {
     private EvidenceService $evidence;
     private PreviewArtifactService $previews;
     private PlanShareService $sharing;
-    public function __construct(PlanMapper $mapper,ReviewService $review,ReviewMapper $index,EvidenceService $evidence,PreviewArtifactService $previews, PlanShareService $sharing) {
+    private DetailArtifactService $details;
+    public function __construct(PlanMapper $mapper,ReviewService $review,ReviewMapper $index,EvidenceService $evidence,PreviewArtifactService $previews, PlanShareService $sharing, DetailArtifactService $details) {
         $this->mapper=$mapper;
         $this->review=$review;
         $this->index=$index;
         $this->evidence=$evidence;
         $this->previews=$previews;
         $this->sharing=$sharing;
+        $this->details=$details;
     }
     public function create(array $payload,string $creator):array {
         return $this->write(null,0,$payload,$creator);
@@ -162,36 +164,60 @@ class PlanService {
         return $this->mapper->save($planId,$prev,$key,$digest,$record);
     }
 
-    /** A human statement concerns this historical preview, never current native integrity. */
+    /** A human statement concerns this historical artifact, never current native integrity. */
     private function validateManualSource(array $manual, int $ref, array $ids, array $current): void {
         if ($manual['status'] === 'not_assessed') {
             if (array_key_exists('source', $manual)) throw new \InvalidArgumentException('Unassessed content cannot have an assessment source');
             return;
         }
         $source = $manual['source'] ?? null;
-        if (!is_array($source) || count($source) !== 5 ||
-            array_diff(array_keys($source), ['kind','evidenceId','previewId','sha256','scope']) ||
-            ($source['kind'] ?? null) !== 'original_preview' ||
-            ($source['scope'] ?? null) !== 'original_first_frame_scaled' ||
+        if (!is_array($source)) throw new \InvalidArgumentException('An assessment source is required');
+        $detail = ($source['kind'] ?? null) === 'original_detail';
+        $fields = $detail ? ['kind','evidenceId','detailId','sha256','scope','frameIndex','region']
+            : ['kind','evidenceId','previewId','sha256','scope'];
+        $scope = $detail ? 'original_selected_frame_region' : 'original_first_frame_scaled';
+        $idField = $detail ? 'detailId' : 'previewId';
+        if (count($source) !== count($fields) || array_diff(array_keys($source), $fields) ||
+            ($source['kind'] ?? null) !== ($detail ? 'original_detail' : 'original_preview') ||
+            ($source['scope'] ?? null) !== $scope ||
             !is_int($source['evidenceId'] ?? null) || $source['evidenceId'] < 1 || $source['evidenceId'] >= PHP_INT_MAX ||
-            !is_int($source['previewId'] ?? null) || $source['previewId'] < 1 ||
+            !is_int($source[$idField] ?? null) || $source[$idField] < 1 || $source[$idField] >= PHP_INT_MAX ||
             !is_string($source['sha256'] ?? null) || !preg_match('/\A[a-f0-9]{64}\z/', $source['sha256']) ||
             !in_array($source['evidenceId'], $ids, true)) {
-            throw new \InvalidArgumentException('A selected original preview source is required');
+            throw new \InvalidArgumentException('A selected original artifact source is required');
         }
-        $artifact = $this->previews->getPreview($ref, $source['evidenceId']);
-        if ($artifact === null || ($artifact['id'] ?? null) !== $source['previewId'] ||
+        if ($detail) {
+            $region=$source['region'] ?? null;
+            if (!is_int($source['frameIndex'] ?? null) || $source['frameIndex']<0 || $source['frameIndex']>2147483647 ||
+                !is_array($region) || count($region)!==4 || array_diff(array_keys($region),['x','y','width','height'])) {
+                throw new \InvalidArgumentException('Invalid assessed detail selection');
+            }
+            foreach (['x','y','width','height'] as $field) {
+                $dimension=in_array($field,['width','height'],true);
+                if (!is_int($region[$field] ?? null) || $region[$field]<($dimension?1:0) ||
+                    $region[$field]>($dimension?512:2147483647)) {
+                    throw new \InvalidArgumentException('Invalid assessed detail rectangle');
+                }
+            }
+        }
+        $artifact = $detail ? $this->details->getDetail($ref, $source['evidenceId'], $source['detailId'])
+            : $this->previews->getPreview($ref, $source['evidenceId']);
+        if ($artifact === null || ($artifact['id'] ?? null) !== $source[$idField] ||
             ($artifact['appRef'] ?? null) !== $ref || ($artifact['evidenceId'] ?? null) !== $source['evidenceId'] ||
             ($artifact['validityScope'] ?? null) !== $source['scope'] ||
             ($artifact['record']['sha256'] ?? null) !== $source['sha256'] ||
             ($artifact['record']['boundSnapshot']['appRef'] ?? null) !== $ref) {
-            throw new EvidenceConflictException('Assessed preview binding changed or is unavailable');
+            throw new EvidenceConflictException('Assessed artifact binding changed or is unavailable');
+        }
+        if ($detail && (($artifact['record']['descriptor']['frameIndex'] ?? null) !== $source['frameIndex'] ||
+            $this->canonical($artifact['record']['descriptor']['region'] ?? []) !== $this->canonical($source['region']))) {
+            throw new EvidenceConflictException('Assessed frame or region does not match the artifact');
         }
         foreach (['indexOwner','indexPath','owner','path','nodeId','storageId','etag','size','mtime'] as $field) {
             if (!array_key_exists($field, $current) ||
                 !array_key_exists($field, $artifact['record']['boundSnapshot']) ||
                 $artifact['record']['boundSnapshot'][$field] !== $current[$field]) {
-                throw new EvidenceConflictException('Assessed preview belongs to a different observed revision');
+                throw new EvidenceConflictException('Assessed artifact belongs to a different observed revision');
             }
         }
     }

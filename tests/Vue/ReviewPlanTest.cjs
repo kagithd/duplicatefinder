@@ -149,3 +149,28 @@ test('explicit sharing selection is bounded, copied, replaceable and preserved f
  vm.record={planId:'x',revision:1,hash:vm.hash,note:'',members:[{appRef:7,action:'keep',observed,evidence:[],manualAssessment:{status:'not_assessed',note:''},sharing:{pages:[{query:event.query,page:event.expected}]}}]}
  vm.editRevision();assert.deepEqual(vm.decisions[0].sharePages,[{query:event.query,expected:event.expected}])
 })
+
+test('detail assessment requires an existing matching finding and resets notes on changed regions',()=>{
+ const vm=component({});const source={kind:'original_detail',evidenceId:7,detailId:31,sha256:'a'.repeat(64),scope:'original_selected_frame_region',frameIndex:1,region:{x:4,y:5,width:1,height:1}}
+ assert.equal(vm.assessDetail({appRef:9,status:'content_visible',source}),false)
+ vm.choose({id:9},'keep',{entry:{id:8}})
+ assert.equal(vm.assessDetail({appRef:9,status:'content_visible',source}),false)
+ assert.deepEqual(vm.decisions[0].evidenceIds,[8])
+ vm.discard();vm.choose({id:9},'keep',{entry:{id:7}})
+ assert.equal(vm.assessDetail({appRef:9,status:'content_visible',source}),true)
+ const d=vm.decisions[0];d.manualAssessment.note='region one'
+ vm.assessDetail({appRef:9,status:'problem',source});assert.equal(d.manualAssessment.note,'region one')
+ vm.assessDetail({appRef:9,status:'content_visible',source:{...source,detailId:32,frameIndex:2}})
+ assert.equal(d.manualAssessment.note,'')
+ assert.match(vm.sourceLabel(d.manualAssessment.source),/32.*3/)
+ vm.busy=true;assert.equal(vm.assessDetail({appRef:9,status:'problem',source}),false)
+})
+
+test('same detail source with reordered JSON fields preserves the assessment note',()=>{
+ const vm=component({});vm.choose({id:9},'keep',{entry:{id:7}})
+ const source={kind:'original_detail',evidenceId:7,detailId:31,sha256:'a'.repeat(64),scope:'original_selected_frame_region',frameIndex:1,region:{x:4,y:5,width:1,height:1}}
+ vm.assessDetail({appRef:9,status:'content_visible',source});vm.decisions[0].manualAssessment.note='Keep note'
+ const reordered={region:{height:1,width:1,y:5,x:4},frameIndex:1,scope:source.scope,sha256:source.sha256,detailId:31,evidenceId:7,kind:source.kind}
+ vm.assessDetail({appRef:9,status:'problem',source:reordered})
+ assert.equal(vm.decisions[0].manualAssessment.note,'Keep note')
+})

@@ -88,9 +88,13 @@
                         <button v-if="item.detailId && item.evidenceId" type="button" data-detail-load :disabled="busy" @click="loadDetail(item)">{{ t('duplicatefinder', 'Load historical detail image') }}</button>
                         <figure v-if="detailImages[detailKey(item)]">
                             <div class="review-checks__detail-viewport" tabindex="0" :aria-label="t('duplicatefinder', 'Native detail pixels; scroll to inspect the full region')">
-                            <img data-detail-image :src="detailImages[detailKey(item)].source" :width="item.detail.width" :height="item.detail.height" :alt="t('duplicatefinder', 'Historical selected-frame detail')" @error="detailFailed(item)">
+                            <img data-detail-image :src="detailImages[detailKey(item)].source" :width="item.detail.width" :height="item.detail.height" :alt="t('duplicatefinder', 'Historical selected-frame detail')" @load="detailLoaded(item)" @error="detailFailed(item)">
                             </div>
                             <figcaption>{{ t('duplicatefinder', 'Oriented source dimensions') }}: {{ detailImages[detailKey(item)].descriptor.sourceWidth }} × {{ detailImages[detailKey(item)].descriptor.sourceHeight }} px. {{ t('duplicatefinder', 'Historical pixels: the current original and visual content have not been verified by viewing this region.') }}</figcaption>
+                            <p>{{ t('duplicatefinder', 'This assessment covers only this historical frame region. First select the same finding in a proposal.') }}</p>
+                            <button type="button" data-detail-assess-visible :disabled="busy || !detailImages[detailKey(item)].loaded" @click="assessDetail(item, 'content_visible')">{{ t('duplicatefinder', 'Content visible in this detail') }}</button>
+                            <button type="button" data-detail-assess-problem :disabled="busy || !detailImages[detailKey(item)].loaded" @click="assessDetail(item, 'problem')">{{ t('duplicatefinder', 'Problem visible in this detail') }}</button>
+                            <p v-if="detailNotices[detailKey(item)]" role="status">{{ detailNotices[detailKey(item)] }}</p>
                         </figure>
                     </template>
 					<p v-if="item.evidenceId">
@@ -119,11 +123,11 @@ export default {
 	name: 'ReviewChecks',
 	props: { visibleRefs: { type: Array, default: () => [] } },
 	data() {
-		return { selection: [], preview: true, signature: '', retryKey: '', busy: false, error: '', jobs: [], nextCursor: null, record: null, detailImages: {}, detailGeneration: 0 }
+		return { selection: [], preview: true, signature: '', retryKey: '', busy: false, error: '', jobs: [], nextCursor: null, record: null, detailImages: {}, detailGeneration: 0, detailNotices: {} }
 	},
 
     watch: {
-        record() { this.detailGeneration++; this.detailImages = {} },
+        record() { this.detailGeneration++; this.detailImages = {}; this.detailNotices = {} },
     },
     beforeDestroy() { this.detailGeneration++ },
     methods: {
@@ -136,6 +140,19 @@ export default {
             return value && ['frameIndex', 'x', 'y', 'width', 'height'].every(field =>
                 Number.isInteger(value[field]) && value[field] >= (['width', 'height'].includes(field) ? 1 : 0)
                 && value[field] <= (['width', 'height'].includes(field) ? 512 : 2147483647))
+        },
+        setDetailNotice(assessment, message) {
+            const key = this.detailKey({ appRef: assessment.appRef, evidenceId: assessment.source.evidenceId, detailId: assessment.source.detailId })
+            this.$set(this.detailNotices, key, message)
+        },
+        detailLoaded(item) {
+            const image = this.detailImages[this.detailKey(item)]
+            if (image) image.loaded = true
+        },
+        assessDetail(item, status) {
+            const image = this.detailImages[this.detailKey(item)]
+            if (this.busy || !this.record?.items.includes(item) || !image?.loaded || !['content_visible', 'problem'].includes(status)) return
+            this.$emit('assessed-detail', { appRef: item.appRef, status, source: copy(image.assessmentSource) })
         },
         detailKey(item) { return item.appRef + ':' + item.evidenceId + ':' + item.detailId },
         detailFailed(item) { this.$delete(this.detailImages, this.detailKey(item)); this.error = this.t('duplicatefinder', 'Detail image could not be displayed.') },
@@ -168,7 +185,9 @@ export default {
                     || bytes.slice(0, 8) !== '\x89PNG\r\n\x1a\n' || bytes.slice(12, 16) !== 'IHDR'
                     || uint32(16) !== d.width || uint32(20) !== d.height || bytes.charCodeAt(24) !== 8
                     || bytes.charCodeAt(25) !== (d.rasterMode === 'RGB' ? 2 : 6)) throw Error('Invalid PNG')
-                this.$set(this.detailImages, key, { descriptor: d, source: 'data:image/png;base64,' + d.imageBase64 })
+                this.$set(this.detailImages, key, { descriptor: d, source: 'data:image/png;base64,' + d.imageBase64, loaded: false,
+                    assessmentSource: { kind: 'original_detail', evidenceId: data.evidenceId, detailId: data.id, sha256: data.record.sha256,
+                        scope: data.validityScope, frameIndex: d.frameIndex, region: copy(d.region) } })
             } catch (error) {
                 if (generation === this.detailGeneration) this.error = this.t('duplicatefinder', 'Detail image could not be loaded or did not match the requested region.')
             } finally { if (generation === this.detailGeneration) this.busy = false }

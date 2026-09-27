@@ -24,8 +24,8 @@
 					:disabled="busy"
 					maxlength="4000"
 					@input="saved = false"></label>
-				<p>{{ assessmentLabel(decision.manualAssessment.status) }} · {{ t('duplicatefinder', 'Finding IDs') }}: {{ decision.evidenceIds.join(', ') || '—' }}</p>
-				<p v-if="decision.manualAssessment.source">{{ t('duplicatefinder', 'Assessed historical preview') }}: {{ decision.manualAssessment.source.previewId }} · {{ decision.manualAssessment.source.scope }}</p>
+				<p>{{ assessmentLabel(decision.manualAssessment.status, decision.manualAssessment.source) }} · {{ t('duplicatefinder', 'Finding IDs') }}: {{ decision.evidenceIds.join(', ') || '—' }}</p>
+				<p v-if="decision.manualAssessment.source">{{ sourceLabel(decision.manualAssessment.source) }}</p>
 				<label v-if="decision.manualAssessment.status !== 'not_assessed'">{{ t('duplicatefinder', 'Assessment note') }}<textarea v-model="decision.manualAssessment.note" :disabled="busy" maxlength="2048" @input="saved = false" /></label>
 				<button v-if="decision.manualAssessment.status !== 'not_assessed'" type="button" :disabled="busy" @click="clearAssessment(decision)">{{ t('duplicatefinder', 'Clear assessment') }}</button>
 				<p>{{ t('duplicatefinder', 'Selected sharing pages in this proposal') }}: {{ sharingCount() }}/20</p>
@@ -107,8 +107,8 @@
 							<dt>{{ t('duplicatefinder', 'Storage / node ID') }}</dt><dd>{{ observation(member).storageId || '—' }} / {{ observation(member).nodeId || '—' }}</dd>
 						</dl>
 						<p>{{ t('duplicatefinder', 'Reason') }}: {{ member.reason || '—' }}</p>
-						<p>{{ assessmentLabel((member.manualAssessment || {}).status) }} · {{ (member.manualAssessment || {}).note || '—' }}</p>
-						<p v-if="member.manualAssessment && member.manualAssessment.source">{{ t('duplicatefinder', 'Assessed historical preview') }}: {{ member.manualAssessment.source.previewId }} · {{ t('duplicatefinder', 'Finding IDs') }}: {{ member.manualAssessment.source.evidenceId }} · {{ member.manualAssessment.source.scope }}</p>
+						<p>{{ assessmentLabel((member.manualAssessment || {}).status, (member.manualAssessment || {}).source) }} · {{ (member.manualAssessment || {}).note || '—' }}</p>
+						<p v-if="member.manualAssessment && member.manualAssessment.source">{{ sourceLabel(member.manualAssessment.source) }}</p>
 						<h5>{{ t('duplicatefinder', 'Saved sharing observations') }}</h5>
 						<p>{{ t('duplicatefinder', 'Selected pages only; unobserved sharing consequences remain unknown.') }}</p>
 						<p v-if="!storedSharing(member).length">{{ t('duplicatefinder', 'No sharing pages were included in this revision.') }}</p>
@@ -187,13 +187,35 @@ export default {
 			const labels = { passed: report.scope === 'original_all_exposed_frames' ? 'All exposed frames decoded' : 'Check completed', corrupt: 'Decoder reported corruption', unsupported: 'Format not supported', inaccessible: 'Original inaccessible', limit: 'Check limit reached', stale: 'File revision changed', error: 'Check failed' }
 			return this.t('duplicatefinder', labels[report.status] || 'Unknown finding')
 		},
-		assessmentLabel(status) {
+		sourceLabel(source) {
+            if (source.kind === 'original_detail') {
+                const r = source.region || {}
+                return this.t('duplicatefinder', 'Assessed historical detail') + ': ' + source.detailId + ' · '
+                    + this.t('duplicatefinder', 'Finding IDs') + ': ' + source.evidenceId + ' · '
+                    + this.t('duplicatefinder', 'Frame or page') + ' ' + (source.frameIndex + 1)
+                    + ' · x=' + r.x + ', y=' + r.y + ' · ' + r.width + ' × ' + r.height + ' px · ' + source.scope
+            }
+            return this.t('duplicatefinder', 'Assessed historical preview') + ': ' + source.previewId + ' · '
+                + this.t('duplicatefinder', 'Finding IDs') + ': ' + source.evidenceId + ' · ' + source.scope
+        },
+        assessDetail(assessment) {
+            const decision = this.decisions.find(item => item.appRef === assessment.appRef)
+            if (this.busy || !decision || assessment.source?.kind !== 'original_detail'
+                || !decision.evidenceIds.includes(assessment.source.evidenceId)
+                || !['content_visible', 'problem'].includes(assessment.status)) return false
+            this.assess(decision, assessment)
+            return true
+        },
+        assessmentLabel(status, source) {
+            if (source?.kind === 'original_detail') return this.t('duplicatefinder', status === 'content_visible' ? 'Content visible in this detail' : status === 'problem' ? 'Problem visible in this detail' : 'Visual content has not been assessed.')
 			return this.t('duplicatefinder', status === 'content_visible' ? 'Content visible in this preview' : status === 'problem' ? 'Problem visible in this preview' : 'Visual content has not been assessed.')
 		},
 		assess(decision, assessment) {
 			if (this.busy || !this.decisions.includes(decision) || assessment.appRef !== decision.appRef || !decision.evidenceIds.includes(assessment.source?.evidenceId) || !['content_visible', 'problem'].includes(assessment.status)) return
 			const previous = decision.manualAssessment.source
-			const sameSource = previous && previous.previewId === assessment.source.previewId && previous.evidenceId === assessment.source.evidenceId && previous.sha256 === assessment.source.sha256
+			const next = assessment.source
+            const sameSource = previous && ['kind', 'evidenceId', 'previewId', 'detailId', 'sha256', 'scope', 'frameIndex'].every(key => previous[key] === next[key])
+                && (next.kind !== 'original_detail' || ['x', 'y', 'width', 'height'].every(key => previous.region?.[key] === next.region?.[key]))
 			decision.manualAssessment = { status: assessment.status, note: sameSource ? decision.manualAssessment.note : '', source: copy(assessment.source) }
 			this.saved = false
 		},
