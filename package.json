@@ -10,7 +10,7 @@
   "license": "agpl",
   "private": true,
   "scripts": {
-    "test:review": "node --test tests/Vue/ReviewRenderTest.cjs tests/Vue/ReviewPlanTest.cjs tests/Vue/ReviewPreviewTest.cjs tests/Vue/ReviewChecksTest.cjs tests/Vue/ReviewSharesTest.cjs",
+    "test:review": "node --test tests/Vue/ReviewEvidenceSearchTest.cjs tests/Vue/ReviewRenderTest.cjs tests/Vue/ReviewPlanTest.cjs tests/Vue/ReviewPreviewTest.cjs tests/Vue/ReviewChecksTest.cjs tests/Vue/ReviewSharesTest.cjs",
     "build": "webpack --node-env production --progress",
     "dev": "webpack --node-env development --progress",
     "watch": "webpack --node-env development --progress --watch",

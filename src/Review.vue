@@ -165,11 +165,13 @@
 			</section>
 		</div>
 		<ReviewChecks ref="checks" :visible-refs="members.map(member => member.id)" @load-evidence="loadEvidence({ id: $event })" />
+		<ReviewEvidenceSearch />
 		<ReviewPlan ref="plan" :hash="selectedHash" />
 	</main>
 </template>
 
 <script>
+import ReviewEvidenceSearch from './components/ReviewEvidenceSearch.vue'
 import ReviewShares from './components/ReviewShares.vue'
 import ReviewChecks from './components/ReviewChecks.vue'
 import ReviewPlan from './components/ReviewPlan.vue'
@@ -179,7 +181,7 @@ import { generateUrl } from '@nextcloud/router'
 
 export default {
 	name: 'Review',
-	components: { ReviewPlan, ReviewPreview, ReviewChecks, ReviewShares },
+	components: { ReviewEvidenceSearch, ReviewPlan, ReviewPreview, ReviewChecks, ReviewShares },
 	data() {
 		return {
 			filterOwner: '', filterFolder: '', appliedOwner: '', appliedFolder: '',

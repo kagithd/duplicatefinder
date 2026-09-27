@@ -13,6 +13,7 @@ return [
 
        ['name' => 'preview_artifact#getPreview', 'url' => '/api/review/members/{appRef}/evidence/{evidenceId}/preview', 'verb' => 'GET'],
 
+       ['name' => 'evidence_search#search', 'url' => '/api/review/evidence', 'verb' => 'GET'],
        ['name' => 'evidence#history', 'url' => '/api/review/members/{appRef}/evidence', 'verb' => 'GET'],
 
        ['name' => 'plan#create', 'url' => '/api/review/plans', 'verb' => 'POST'],

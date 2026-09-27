@@ -72,6 +72,7 @@
     </repair-steps>
 
     <commands>
+        <command>OCA\DuplicateFinder\Command\BackfillEvidenceSearch</command>
         <command>OCA\DuplicateFinder\Command\FindDuplicates</command>
         <command>OCA\DuplicateFinder\Command\ListDuplicates</command>
         <command>OCA\DuplicateFinder\Command\ClearDuplicates</command>
