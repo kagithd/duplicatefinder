@@ -127,6 +127,7 @@
 									{{ t('duplicatefinder', 'Exclude from proposal') }}
 								</button>
 							</div>
+							<ReviewShares :app-ref="member.id" />
 							<details>
 								<summary>{{ t('duplicatefinder', 'File identity details') }}</summary>
 								<dl>
@@ -161,6 +162,7 @@
 </template>
 
 <script>
+import ReviewShares from './components/ReviewShares.vue'
 import ReviewChecks from './components/ReviewChecks.vue'
 import ReviewPlan from './components/ReviewPlan.vue'
 import ReviewPreview from './components/ReviewPreview.vue'
@@ -169,7 +171,7 @@ import { generateUrl } from '@nextcloud/router'
 
 export default {
 	name: 'Review',
-	components: { ReviewPlan, ReviewPreview, ReviewChecks },
+	components: { ReviewPlan, ReviewPreview, ReviewChecks, ReviewShares },
 	data() {
 		return {
 			groups: [],
