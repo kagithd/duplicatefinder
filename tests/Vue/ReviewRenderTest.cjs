@@ -384,3 +384,63 @@ test('scope filters apply explicitly, reset cursor, preserve drafts and ignore l
  assert.match(vm.$el.textContent,/Other copies in matching groups remain visible/)
  dispose(vm)
 })
+
+test('opening a finding resolves current reference and member page without changing a retained draft', async () => {
+    const calls=[];
+    const vm=mount(async (url,options)=>{
+        calls.push([url,options]);
+        if(url.endsWith('/references/77'))return {data:{id:77,candidateHash:hashB,indexPath:'/alice/files/current.png'}};
+        if(url.endsWith('/members'))return {data:{items:[{id:77,indexOwner:'alice',indexPath:'/alice/files/current.png',availability:'available',etag:'new'}],nextCursor:null}};
+        return {data:{items:[],nextCursor:null}};
+    });
+    await tick();vm.$refs.plan.note='Retained review note';
+    await vm.openEvidenceReference(77);await tick();
+    assert.equal(vm.selectedHash,hashB);assert.equal(vm.members[0].etag,'new');
+    assert.equal(calls.find(x=>x[0].endsWith('/members'))[1].params.cursor,76);
+    assert.equal(vm.$refs.plan.note,'Retained review note');assert.equal(vm.$refs.checks.selection.length,0);
+    dispose(vm);
+});
+test('late finding navigation cannot overwrite a newer manual group selection', async () => {
+    let resolve;
+    const vm=mount((url)=>url.endsWith('/references/77')?new Promise(r=>resolve=r):Promise.resolve({data:{items:[],nextCursor:null}}));
+    await tick();const pending=vm.openEvidenceReference(77);vm.selectGroup(hashA);await tick();
+    resolve({data:{id:77,candidateHash:hashB}});await pending;await tick();assert.equal(vm.selectedHash,hashA);dispose(vm);
+});
+test('finding button opens current data and reports a vanished reference without changing the plan', async () => {
+ const vm=mount(async(url)=>{
+  if(url.endsWith('/references/77'))return {data:{id:77,candidateHash:hashB}};
+  return {data:{items:[],nextCursor:null}};
+ });
+ await tick();
+ const search=vm.$children.find(child=>child.$options.name==='ReviewEvidenceSearch');
+ search.page={items:[{id:1,appRef:77,historicalStatus:'corrupt'}],metadataComplete:true,nextCursor:null};
+ vm.$refs.plan.note='Keep draft';
+ await tick();search.$el.querySelector('[data-open-reference]').click();await tick();
+ assert.match(vm.referenceError,/could not be opened/);
+ assert.equal(vm.openedReference,null);assert.equal(vm.referenceLoading,false);
+ assert.equal(vm.$refs.plan.note,'Keep draft');dispose(vm);
+});
+test('late member navigation cannot overwrite a newer selection', async () => {
+ let release;
+ const vm=mount(async(url)=>{
+  if(url.endsWith('/references/77'))return {data:{id:77,candidateHash:hashB}};
+  if(url.includes(hashB))return new Promise(resolve=>{release=resolve});
+  return {data:{items:[],nextCursor:null}};
+ });
+ await tick();const pending=vm.openEvidenceReference(77);await tick();
+ vm.selectGroup(hashA);await tick();
+ release({data:{items:[{id:77}],nextCursor:null}});await pending;await tick();
+ assert.equal(vm.selectedHash,hashA);assert.equal(vm.members.length,0);
+ assert.equal(vm.openedReference,null);assert.equal(vm.referenceError,'');dispose(vm);
+});
+
+test('finding origin remains visible while paging the same group and clears on group change', async () => {
+ const vm=mount(async(url)=>{
+  if(url.endsWith('/references/77'))return {data:{id:77,candidateHash:hashB}};
+  return {data:{items:[{id:77}],nextCursor:null}};
+ });
+ await tick();await vm.openEvidenceReference(77);
+ await vm.loadMembers(0);await tick();
+ assert.equal(vm.openedReference,77);
+ vm.selectGroup(hashA);await tick();assert.equal(vm.openedReference,null);dispose(vm);
+});

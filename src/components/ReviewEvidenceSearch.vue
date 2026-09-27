@@ -25,7 +25,8 @@
 						<p>{{ t('duplicatefinder', 'Finding validity') }}: {{ validity(item.evidence.usability) }}</p>
 					</template>
 					<p v-else>{{ t('duplicatefinder', 'Finding details are unavailable. Do not use this entry as an integrity confirmation.') }}</p>
-				</li>
+                    <button type="button" data-open-reference :disabled="opening" @click="$emit('open-reference', item.appRef)">{{ t('duplicatefinder', 'Open current reference') }}</button>
+                </li>
 			</ul>
 			<button type="button" :disabled="busy" @click="load(0)">{{ t('duplicatefinder', 'First findings page') }}</button>
 			<button type="button" :disabled="busy || page.nextCursor === null" @click="load(page.nextCursor)">{{ t('duplicatefinder', 'Next findings page') }}</button>
@@ -37,6 +38,7 @@ import axios from '@nextcloud/axios'
 import { generateUrl } from '@nextcloud/router'
 export default {
 	name: 'ReviewEvidenceSearch',
+	props: { opening: { type: Boolean, default: false } },
 	data() { return { status: 'corrupt', format: '', appliedStatus: 'corrupt', appliedFormat: '', page: null, busy: false, error: '', requestId: 0,
 		statuses: ['', 'corrupt', 'unsupported', 'inaccessible', 'limit', 'stale', 'error', 'invalid', 'passed'] } },
 	beforeDestroy() { this.requestId++ },

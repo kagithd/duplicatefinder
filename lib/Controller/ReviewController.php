@@ -58,6 +58,13 @@ class ReviewController extends Controller
         return new DataResponse($this->service->groups($cursor, $limit, $owner, $folder));
     }
 
+    public function reference(int $appRef): DataResponse
+    {
+        if (!$this->isAdmin()) return new DataResponse([], 403);
+        if ($appRef < 1) return new DataResponse(['error' => 'Invalid reference'], 400);
+        $item = $this->service->reference($appRef);
+        return $item === null ? new DataResponse(['error' => 'Reference not found'], 404) : new DataResponse($item);
+    }
     public function members(string $hash, int $cursor = 0, int $limit = 50): DataResponse
     {
         if (!$this->isAdmin()) {

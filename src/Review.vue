@@ -54,7 +54,7 @@
 				</nav>
 			</section>
 			<section class="review__members" :aria-busy="membersLoading" aria-labelledby="review-members-heading">
-				<h2 id="review-members-heading">
+				<h2 id="review-members-heading" ref="membersHeading" tabindex="-1">
 					{{ t('duplicatefinder', 'References') }}
 				</h2>
 				<p v-if="!selectedHash">
@@ -165,7 +165,10 @@
 			</section>
 		</div>
 		<ReviewChecks ref="checks" :visible-refs="members.map(member => member.id)" @load-evidence="loadEvidence({ id: $event })" />
-		<ReviewEvidenceSearch />
+		<p v-if="referenceLoading" role="status">{{ t('duplicatefinder', 'Loading current reference') }}</p>
+        <p v-if="referenceError" role="alert">{{ referenceError }}</p>
+        <p v-if="openedReference">{{ t('duplicatefinder', 'Opened from a saved finding. This group is independent of the group list filters.') }} {{ openedReference }}</p>
+        <ReviewEvidenceSearch :opening="referenceLoading" @open-reference="openEvidenceReference" />
 		<ReviewPlan ref="plan" :hash="selectedHash" />
 	</main>
 </template>
@@ -196,6 +199,7 @@ export default {
 			membersLoading: false,
 			groupsError: false,
 			membersError: false,
+			referenceRequest: 0, referenceLoading: false, referenceError: '', openedReference: null,
 			groupRequest: 0,
 			memberRequest: 0,
 			evidence: {},
@@ -206,6 +210,7 @@ export default {
 		this.loadGroups('')
 	},
 	beforeDestroy() {
+		this.referenceRequest++
 		this.evidenceEpoch++
 		this.groupRequest++
 		this.memberRequest++
@@ -263,6 +268,7 @@ export default {
 			return value === null || value === undefined ? this.t('duplicatefinder', 'Unknown') : value
 		},
 		async loadGroups(cursor) {
+			this.cancelReferenceNavigation()
 			this.evidenceEpoch++
 			this.evidence = {}
 			const request = ++this.groupRequest
@@ -286,11 +292,49 @@ export default {
 				if (request === this.groupRequest) this.groupsLoading = false
 			}
 		},
+        cancelReferenceNavigation(preserveOrigin = false) {
+            this.referenceRequest++
+            this.referenceLoading = false
+            this.referenceError = ''
+            if (!preserveOrigin) this.openedReference = null
+        },
+        async openEvidenceReference(appRef) {
+            this.cancelReferenceNavigation()
+            const request = this.referenceRequest
+            this.referenceLoading = true
+            this.memberRequest++
+            this.evidenceEpoch++
+            this.evidence = {}
+            this.members = []
+            this.membersLoading = false
+            this.selectedHash = ''
+            try {
+                if (!Number.isSafeInteger(appRef) || appRef < 1) throw new Error('Invalid reference')
+                const { data } = await axios.get(generateUrl('/apps/duplicatefinder/api/review/references/' + appRef))
+                if (request !== this.referenceRequest) return
+                if (data.id !== appRef || !/^[a-f0-9]{64}$/.test(data.candidateHash)) throw new Error('Invalid reference')
+                this.selectedHash = data.candidateHash
+                await this.loadMembers(appRef - 1, true)
+                if (request !== this.referenceRequest) return
+                if (this.membersError || !this.members.some(member => member.id === appRef)) throw new Error('Reference changed')
+                this.openedReference = appRef
+                await this.$nextTick()
+                if (request !== this.referenceRequest) return
+                this.$refs.membersHeading?.focus()
+                this.$refs.membersHeading?.scrollIntoView?.({ block: 'start' })
+            } catch (error) {
+                if (request === this.referenceRequest) this.referenceError = this.t('duplicatefinder', 'Current reference could not be opened. It may have changed or disappeared. Try again.')
+            } finally {
+                if (request === this.referenceRequest) this.referenceLoading = false
+            }
+        },
 		selectGroup(hash) {
+			this.cancelReferenceNavigation()
 			this.selectedHash = hash
 			this.loadMembers(0)
 		},
-		async loadMembers(cursor) {
+		async loadMembers(cursor, referenceNavigation = false) {
+			if (!referenceNavigation) this.cancelReferenceNavigation(true)
 			this.evidenceEpoch++
 			this.evidence = {}
 			const request = ++this.memberRequest

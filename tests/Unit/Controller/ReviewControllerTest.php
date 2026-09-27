@@ -78,4 +78,16 @@ class ReviewControllerTest extends TestCase
             $this->assertSame(400,$controller->groups('',25,'alice',$path)->getStatus());
         }
     }
+    public function testCurrentReferenceRequiresAdminAndDoesNotUseHistoricalData(): void {
+        foreach ([null,'reader'] as $uid) {
+            $service=$this->createMock(ReviewService::class);$service->expects($this->never())->method('reference');
+            $this->assertSame(403,$this->controller($uid,false,$service)->reference(7)->getStatus());
+        }
+        $service=$this->createMock(ReviewService::class);$service->expects($this->exactly(2))->method('reference')->withConsecutive([7],[8])->willReturnOnConsecutiveCalls(['id'=>7,'indexPath'=>'/alice/files/current.png','availability'=>'unavailable'],null);
+        $controller=$this->controller('admin',true,$service);
+        $this->assertSame(400,$controller->reference(0)->getStatus());
+        $response=$controller->reference(7);$this->assertSame(200,$response->getStatus());
+        $this->assertSame('/alice/files/current.png',$response->getData()['indexPath']);
+        $this->assertSame(404,$controller->reference(8)->getStatus());
+    }
 }

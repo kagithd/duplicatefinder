@@ -1,6 +1,11 @@
 OC.L10N.register(
     "duplicatefinder",
     {
+"Loading current reference": "Aktuelle Fundstelle wird geladen",
+"Opened from a saved finding. This group is independent of the group list filters.": "Aus einem gespeicherten Befund geöffnet. Diese Gruppe ist unabhängig von den Filtern der Gruppenliste.",
+"Current reference could not be opened. It may have changed or disappeared. Try again.": "Die aktuelle Fundstelle konnte nicht geöffnet werden. Sie wurde möglicherweise geändert oder entfernt. Bitte erneut versuchen.",
+"Open current reference": "Aktuelle Fundstelle öffnen",
+
     "Historical findings" : "Gespeicherte Prüfbefunde",
     "Search the latest saved finding per file reference. This does not cover files without a finding and does not verify current file contents." : "Zeigt den neuesten gespeicherten Befund je Dateifundstelle. Dateien ohne Befund sind nicht enthalten. Der aktuelle Dateiinhalt wird dabei nicht erneut geprüft.",
     "Finding status" : "Prüfergebnis",
