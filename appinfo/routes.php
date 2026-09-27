@@ -20,6 +20,11 @@ return [
        ['name' => 'plan#revision', 'url' => '/api/review/plans/{planId}/revisions/{revision}', 'verb' => 'GET'],
        ['name' => 'plan#export', 'url' => '/api/review/plans/{planId}/revisions/{revision}/export', 'verb' => 'GET'],
 
+       ['name' => 'check_job#create', 'url' => '/api/review/checks', 'verb' => 'POST'],
+       ['name' => 'check_job#listing', 'url' => '/api/review/checks', 'verb' => 'GET'],
+       ['name' => 'check_job#get', 'url' => '/api/review/checks/{jobId}', 'verb' => 'GET'],
+       ['name' => 'check_job#cancel', 'url' => '/api/review/checks/{jobId}/cancel', 'verb' => 'POST'],
+
        // Filter routes
        ['name' => 'filter#index', 'url' => '/api/filters', 'verb' => 'GET'],
        ['name' => 'filter#create', 'url' => '/api/filters', 'verb' => 'POST'],

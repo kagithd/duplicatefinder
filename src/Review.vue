@@ -113,6 +113,9 @@
 									{{ t('duplicatefinder', 'No saved finding. Integrity remains unchecked.') }}
 								</p>
 							</div>
+							<button type="button" data-check-add @click="$refs.checks.choose(member)">
+								{{ t('duplicatefinder', 'Add to check selection') }}
+							</button>
 							<div class="review__decisions">
 								<button type="button" data-plan-keep @click="$refs.plan.choose(member, 'keep', evidence[member.id])">
 									{{ t('duplicatefinder', 'Keep') }}
@@ -152,11 +155,13 @@
 				</template>
 			</section>
 		</div>
+		<ReviewChecks ref="checks" :visible-refs="members.map(member => member.id)" @load-evidence="loadEvidence({ id: $event })" />
 		<ReviewPlan ref="plan" :hash="selectedHash" />
 	</main>
 </template>
 
 <script>
+import ReviewChecks from './components/ReviewChecks.vue'
 import ReviewPlan from './components/ReviewPlan.vue'
 import ReviewPreview from './components/ReviewPreview.vue'
 import axios from '@nextcloud/axios'
@@ -164,7 +169,7 @@ import { generateUrl } from '@nextcloud/router'
 
 export default {
 	name: 'Review',
-	components: { ReviewPlan, ReviewPreview },
+	components: { ReviewPlan, ReviewPreview, ReviewChecks },
 	data() {
 		return {
 			groups: [],
