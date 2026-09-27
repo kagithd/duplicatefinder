@@ -94,7 +94,9 @@ class PlanService {
                         throw new EvidenceConflictException('Incomplete observed identity');
                     }
                 }
-                $identity=$this->canonical([$current['storageId'],$current['nodeId']]);
+                // File IDs identify entries globally within this Nextcloud instance.
+                // A shared mount has a different storage ID but retains the source file ID.
+                $identity='node:' . $current['nodeId'];
                 if(isset($physical[$identity])&&($physical[$identity]!==$action||$action==='remove')) {
                     throw new \InvalidArgumentException('Conflicting or repeated physical action');
                 }

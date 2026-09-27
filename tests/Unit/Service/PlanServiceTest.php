@@ -104,6 +104,36 @@ class PlanServiceTest extends TestCase  {
         $this->expectException(\InvalidArgumentException::class);
         $s->create($p, 'admin');
     }
+    /** @dataProvider sharedMountActions */
+    public function testSharedMountAliasesCannotHaveConflictingActions(string $firstAction, string $secondAction, bool $conflict): void {
+        $owner = ['id'=>1,'indexOwner'=>'alice','indexPath'=>'/alice/files/photos/a.png','owner'=>'alice',
+            'path'=>'/alice/files/photos/a.png','storageId'=>'home::alice','nodeId'=>42,'etag'=>'v1',
+            'size'=>12,'mtime'=>100,'availability'=>'available','candidateHash'=>str_repeat('a',64)];
+        $recipient = array_merge($owner, ['id'=>2,'indexOwner'=>'bob','indexPath'=>'/bob/files/shared/a.png',
+            'path'=>'/bob/files/shared/a.png','storageId'=>'shared::/shared']);
+        $review = $this->createMock(ReviewService::class);
+        $review->method('reference')->willReturnCallback(fn($id) => $id === 1 ? $owner : $recipient);
+        $index = $this->createMock(ReviewMapper::class);
+        $index->method('candidateHash')->willReturn(str_repeat('a',64));
+        $mapper = $this->createMock(PlanMapper::class);
+        if ($conflict) $mapper->expects($this->never())->method('save');
+        else $mapper->expects($this->once())->method('save')->willReturnCallback(static fn($id,$prev,$key,$digest,$record) => $record);
+        $service = new PlanService($mapper,$review,$index,$this->createMock(EvidenceService::class),
+            $this->createMock(\OCA\DuplicateFinder\Service\PreviewArtifactService::class));
+        $selection = static fn($ref,$action,$observed) => ['appRef'=>$ref,'action'=>$action,'expected'=>$observed,
+            'evidenceIds'=>[],'manualAssessment'=>['status'=>'not_assessed','note'=>''],'reason'=>''];
+        $payload = ['hash'=>str_repeat('a',64),'members'=>[$selection(1,$firstAction,$owner),$selection(2,$secondAction,$recipient)],
+            'indexActions'=>[],'note'=>'','idempotencyKey'=>'shared-alias-1'];
+        if ($conflict) {
+            $this->expectException(\InvalidArgumentException::class);
+            $this->expectExceptionMessage('Conflicting or repeated physical action');
+        }
+        $result = $service->create($payload,'admin');
+        if (!$conflict) $this->assertCount(2, $result['members']);
+    }
+    public static function sharedMountActions(): array {
+        return [['keep','remove',true],['remove','keep',true],['remove','remove',true],['keep','keep',false],['keep','exclude',false]];
+    }
     public function testChangedCandidateHashConflicts(): void {
         [$s, $m, $p] = $this->fixture([], false, str_repeat('b', 64));
         $this->expectException(EvidenceConflictException::class);
