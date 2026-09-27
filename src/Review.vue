@@ -104,6 +104,10 @@
 										{{ reportOf(evidence[member.id].entry).decoder.version }}
 									</p>
 									<p>{{ t('duplicatefinder', 'Visual content has not been assessed.') }}</p>
+									<ReviewPreview v-if="reportOf(evidence[member.id].entry).status === 'passed'"
+										:key="member.id + ':' + evidence[member.id].entry.id"
+										:app-ref="member.id"
+										:evidence-id="evidence[member.id].entry.id" />
 								</template>
 								<p v-else>
 									{{ t('duplicatefinder', 'No saved finding. Integrity remains unchecked.') }}
@@ -154,12 +158,13 @@
 
 <script>
 import ReviewPlan from './components/ReviewPlan.vue'
+import ReviewPreview from './components/ReviewPreview.vue'
 import axios from '@nextcloud/axios'
 import { generateUrl } from '@nextcloud/router'
 
 export default {
 	name: 'Review',
-	components: { ReviewPlan },
+	components: { ReviewPlan, ReviewPreview },
 	data() {
 		return {
 			groups: [],

@@ -10,6 +10,8 @@ return [
        ['name' => 'review#groups', 'url' => '/api/review/groups', 'verb' => 'GET'],
        ['name' => 'review#members', 'url' => '/api/review/groups/{hash}/members', 'verb' => 'GET'],
 
+       ['name' => 'preview_artifact#getPreview', 'url' => '/api/review/members/{appRef}/evidence/{evidenceId}/preview', 'verb' => 'GET'],
+
        ['name' => 'evidence#history', 'url' => '/api/review/members/{appRef}/evidence', 'verb' => 'GET'],
 
        ['name' => 'plan#create', 'url' => '/api/review/plans', 'verb' => 'POST'],

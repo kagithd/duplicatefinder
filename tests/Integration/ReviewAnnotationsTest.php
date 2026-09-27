@@ -47,4 +47,17 @@ class ReviewAnnotationsTest extends TestCase
                 $this->assertFalse($reflector->hasAnnotation($exemption), $method . ': ' . $exemption);
             }
         }
-    }}
+    }
+
+    public function testPreviewReadRetainsAllRealMiddlewareChecks(): void
+    {
+        if (!class_exists(ControllerMethodReflector::class)) {
+            $this->markTestSkipped('Nextcloud core is required for annotation integration');
+        }
+        $reflector = new ControllerMethodReflector(new NullLogger());
+        $reflector->reflect(\OCA\DuplicateFinder\Controller\PreviewArtifactController::class, 'getPreview');
+        foreach (['NoCSRFRequired', 'NoAdminRequired', 'PublicPage'] as $exemption) {
+            $this->assertFalse($reflector->hasAnnotation($exemption), $exemption);
+        }
+    }
+}

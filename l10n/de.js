@@ -542,6 +542,14 @@ OC.L10N.register(
     "Project scan initiated" : "Projektscan gestartet",
     "Failed to initiate project scan" : "Der Projektscan konnte nicht gestartet werden.",
     "Failed to load project duplicates" : "Projektduplikate konnten nicht geladen werden",
+    "Reload historical preview" : "Historische Vorschau erneut laden",
+    "Load historical preview" : "Historische Vorschau laden",
+    "Loading historical preview…" : "Historische Vorschau wird geladen…",
+    "Historical preview is unavailable. Use the button to retry." : "Keine historische Vorschau verfügbar. Über die Schaltfläche erneut versuchen.",
+    "Historical preview could not be loaded. Use the button to retry." : "Historische Vorschau konnte nicht geladen werden. Über die Schaltfläche erneut versuchen.",
+    "Scaled first frame from the historical original" : "Verkleinerter erster Frame des historischen Originals",
+    "Historical original preview" : "Historische Originalvorschau",
+    "The preview shows only the first frame. The original check decoded all exposed frames." : "Die Vorschau zeigt nur den ersten Frame. Die Originalprüfung dekodierte alle bereitgestellten Frames.",
     "The viewer is not available" : "Der Betrachter ist nicht verfügbar"
 },
 "nplurals=2; plural=(n != 1);");

@@ -22,8 +22,8 @@ function mount(get, post = async () => { throw new Error("unexpected mutation") 
     const code = babel.transformSync(sfc.script.content, { babelrc: false, configFile: false, plugins: ['@babel/plugin-transform-modules-commonjs'] }).code
     const module = { exports: {} }
     const fakeRequire = name => {
-        if (name === './components/ReviewPlan.vue') {
-            const child = compiler.parseComponent(fs.readFileSync(path.join(__dirname, '../../src/components/ReviewPlan.vue'), 'utf8'))
+        if (name === './components/ReviewPlan.vue' || name === './components/ReviewPreview.vue') {
+            const child = compiler.parseComponent(fs.readFileSync(path.join(__dirname, '../../src', name), 'utf8'))
             const childCode = babel.transformSync(child.script.content, { babelrc: false, configFile: false, plugins: ['@babel/plugin-transform-modules-commonjs'] }).code
             const childMod = { exports: {} }
             new Function('require', 'module', 'exports', childCode)(fakeRequire, childMod, childMod.exports)
@@ -270,5 +270,54 @@ test('explicit plan selections survive member pages and group changes without ex
     assert.equal(submissions[0].members[0].expected.etag, 'first')
     plan.note = 'new note'; await plan.save()
     assert.notEqual(submissions[1].idempotencyKey, submissions[2].idempotencyKey)
+    dispose(vm)
+})
+
+test('preview control appears only after explicitly loading a passed finding and fetches its exact bound artifact', async () => {
+    const calls = []
+    const vm = mount(async url => {
+        calls.push(url)
+        if (url.endsWith('/preview')) return { data: { id: 1, appRef: 9, evidenceId: 7, createdAt: 1700000000, record: { schemaVersion: 1, descriptor: { status: 'available', scope: 'original_first_frame_scaled', mime: 'image/jpeg', frameIndex: 0, width: 100, height: 50, imageBase64: Buffer.from([255,216,255,224,1,2,255,217]).toString('base64') } }, nativeFreshness: 'not_rechecked', validityScope: 'original_first_frame_scaled', visualAssessment: 'not_provided' } }
+        return responseForReview(url, () => Promise.resolve({ data: { items: [evidenceEntry()], nextCursor: null } }))
+    })
+    await tick(); vm.$el.querySelector('[data-group]').click(); await tick()
+    assert.equal(vm.$el.querySelector('[data-load-preview]'), null)
+    vm.$el.querySelector('[data-load-evidence]').click(); await tick()
+    assert.ok(vm.$el.querySelector('[data-load-preview]'))
+    assert.equal(calls.length, 3)
+    vm.$el.querySelector('[data-plan-keep]').click(); await tick()
+    const decisions = JSON.stringify(vm.$refs.plan.decisions)
+    vm.$el.querySelector('[data-load-preview]').click(); await tick()
+    assert.equal(calls[3], '/apps/duplicatefinder/api/review/members/9/evidence/7/preview')
+    assert.ok(vm.$el.querySelector('img'))
+    assert.equal(JSON.stringify(vm.$refs.plan.decisions), decisions)
+    vm.$el.querySelector('[data-load-evidence]').click(); await tick()
+    assert.equal(vm.$el.querySelector('img'), null)
+    dispose(vm)
+})
+
+test('failed technical findings never expose a preview control', async () => {
+    for (const status of ['corrupt', 'unsupported', 'limit', 'stale', 'error']) {
+        const vm = mount(url => responseForReview(url, () => Promise.resolve({ data: { items: [evidenceEntry(status)], nextCursor: null } })))
+        await tick(); vm.$el.querySelector('[data-group]').click(); await tick()
+        vm.$el.querySelector('[data-load-evidence]').click(); await tick()
+        assert.equal(vm.$el.querySelector('[data-load-preview]'), null)
+        dispose(vm)
+    }
+})
+
+test('a pending preview cannot return after its parent changes the group page', async () => {
+    let resolvePreview
+    const vm = mount(url => {
+        if (url.endsWith('/preview')) return new Promise(resolve => { resolvePreview = resolve })
+        return responseForReview(url, () => Promise.resolve({ data: { items: [evidenceEntry()], nextCursor: null } }))
+    })
+    await tick(); vm.$el.querySelector('[data-group]').click(); await tick()
+    vm.$el.querySelector('[data-load-evidence]').click(); await tick()
+    vm.$el.querySelector('[data-load-preview]').click(); await tick()
+    vm.$el.querySelector('[data-next-groups]').click(); await tick()
+    resolvePreview({ data: { appRef: 9, evidenceId: 7 } }); await tick()
+    assert.equal(vm.$el.querySelector('img'), null)
+    assert.equal(vm.$el.querySelector('[data-load-preview]'), null)
     dispose(vm)
 })
