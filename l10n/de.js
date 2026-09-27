@@ -1,6 +1,15 @@
 OC.L10N.register(
     "duplicatefinder",
     {
+    "Without saved findings": "Ohne gespeicherten Prüfbefund",
+    "Indexed duplicate candidates without any saved finding. Old or invalid findings are excluded. This is not a complete list of files needing a new check.": "Dublettenkandidaten im Index ohne gespeicherten Befund. Alte oder ungültige Befunde sind ausgeschlossen. Dies ist keine vollständige Liste aller Dateien, die erneut geprüft werden müssen.",
+    "Indexed MIME type (exact, optional)": "MIME-Typ im Index (exakt, optional)",
+    "Find files without reports": "Dateien ohne Befund suchen",
+    "Paths and MIME types come from the stored index. Opening a reference loads current metadata before you can select a check or decision.": "Pfade und MIME-Typen stammen aus dem gespeicherten Index. Beim Öffnen einer Fundstelle werden aktuelle Metadaten geladen, bevor Sie eine Prüfung oder Entscheidung auswählen können.",
+    "No matching indexed candidates without reports. This does not establish current file integrity or index completeness.": "Keine passenden Indexkandidaten ohne Befund. Dies bestätigt weder die aktuelle Dateiintegrität noch einen vollständigen Index.",
+    "Could not load files without reports. Check your filters and session, then try again.": "Dateien ohne Befund konnten nicht geladen werden. Prüfen Sie die Filter und Anmeldung und versuchen Sie es erneut.",
+    "Opened from a file search. This group is independent of the group list filters.": "Aus einer Dateisuche geöffnet. Diese Gruppe ist unabhängig von den Filtern der Gruppenliste.",
+
 "Loading current reference": "Aktuelle Fundstelle wird geladen",
 "Opened from a saved finding. This group is independent of the group list filters.": "Aus einem gespeicherten Befund geöffnet. Diese Gruppe ist unabhängig von den Filtern der Gruppenliste.",
 "Current reference could not be opened. It may have changed or disappeared. Try again.": "Die aktuelle Fundstelle konnte nicht geöffnet werden. Sie wurde möglicherweise geändert oder entfernt. Bitte erneut versuchen.",

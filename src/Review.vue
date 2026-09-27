@@ -167,13 +167,15 @@
 		<ReviewChecks ref="checks" :visible-refs="members.map(member => member.id)" @load-evidence="loadEvidence({ id: $event })" />
 		<p v-if="referenceLoading" role="status">{{ t('duplicatefinder', 'Loading current reference') }}</p>
         <p v-if="referenceError" role="alert">{{ referenceError }}</p>
-        <p v-if="openedReference">{{ t('duplicatefinder', 'Opened from a saved finding. This group is independent of the group list filters.') }} {{ openedReference }}</p>
-        <ReviewEvidenceSearch :opening="referenceLoading" @open-reference="openEvidenceReference" />
+        <p v-if="openedReference">{{ t('duplicatefinder', 'Opened from a file search. This group is independent of the group list filters.') }} {{ openedReference }}</p>
+        <ReviewMissingFindings :opening="referenceLoading" @open-reference="openEvidenceReference" />
+		<ReviewEvidenceSearch :opening="referenceLoading" @open-reference="openEvidenceReference" />
 		<ReviewPlan ref="plan" :hash="selectedHash" />
 	</main>
 </template>
 
 <script>
+import ReviewMissingFindings from './components/ReviewMissingFindings.vue'
 import ReviewEvidenceSearch from './components/ReviewEvidenceSearch.vue'
 import ReviewShares from './components/ReviewShares.vue'
 import ReviewChecks from './components/ReviewChecks.vue'
@@ -184,7 +186,7 @@ import { generateUrl } from '@nextcloud/router'
 
 export default {
 	name: 'Review',
-	components: { ReviewEvidenceSearch, ReviewPlan, ReviewPreview, ReviewChecks, ReviewShares },
+	components: { ReviewMissingFindings, ReviewEvidenceSearch, ReviewPlan, ReviewPreview, ReviewChecks, ReviewShares },
 	data() {
 		return {
 			filterOwner: '', filterFolder: '', appliedOwner: '', appliedFolder: '',

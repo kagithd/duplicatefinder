@@ -82,6 +82,41 @@ class ReviewMapper
         }
     }
 
+    /** Indexed duplicate candidates with no report at all; not a freshness classification. */
+    public function missingFindings(int $cursor, int $limit, string $owner = '', string $folder = '', string $mime = ''): array
+    {
+        if ($cursor < 0 || $limit < 1 || $limit > 101) throw new \InvalidArgumentException('Invalid page');
+        $qb = $this->db->getQueryBuilder();
+        $qb->select('f.id', 'f.owner', 'f.path', 'f.file_hash', 'f.mimetype', 'f.ignored')
+            ->from('duplicatefinder_finfo', 'f')
+            ->where($qb->expr()->gt('f.id', $qb->createNamedParameter($cursor, IQueryBuilder::PARAM_INT)))
+            ->andWhere($qb->expr()->eq('f.ignored', $qb->createNamedParameter(false, IQueryBuilder::PARAM_BOOL)));
+        if ($owner !== '') $qb->andWhere($qb->expr()->eq('f.owner', $qb->createNamedParameter($owner)));
+        if ($mime !== '') $qb->andWhere($qb->expr()->eq('f.mimetype', $qb->createNamedParameter($mime)));
+        if ($folder !== '') {
+            $prefix = rtrim($folder, '/') . '/';
+            $qb->andWhere($qb->expr()->eq($qb->createFunction('SUBSTR(f.path, 1, ' . $qb->createNamedParameter(mb_strlen($prefix, 'UTF-8'), IQueryBuilder::PARAM_INT) . ')'), $qb->createNamedParameter($prefix)));
+        }
+        $evidence = $this->db->getQueryBuilder();
+        $evidence->select('e.id')->from('df_review_evidence', 'e')->where($evidence->expr()->eq('e.app_ref', 'f.id'));
+        $remaining = 'f.file_hash';
+        foreach (str_split('0123456789abcdef') as $digit) $remaining = "REPLACE($remaining, '$digit', '')";
+        $peer = $this->db->getQueryBuilder();
+        $peer->select('p.id')->from('duplicatefinder_finfo', 'p')
+            ->where($peer->expr()->eq('p.file_hash', 'f.file_hash'))
+            ->andWhere($peer->expr()->neq('p.id', 'f.id'))
+            ->andWhere($peer->expr()->eq('p.ignored', $qb->createNamedParameter(false, IQueryBuilder::PARAM_BOOL)));
+        // Guard expensive validation: already reported references cannot match.
+        // A plain AND allows SQLite to validate every hash before its subquery.
+        $qb->andWhere($qb->createFunction('CASE WHEN EXISTS (' . $evidence->getSQL() . ') THEN 0 '
+            . 'WHEN LENGTH(f.file_hash) = 64 AND ' . $remaining . " = '' AND EXISTS (" . $peer->getSQL()
+            . ') THEN 1 ELSE 0 END = 1'));
+        $qb->orderBy('f.id', 'ASC')->setMaxResults($limit);
+        $result = $qb->executeQuery();
+        try { return $result->fetchAll(); }
+        finally { $result->closeCursor(); }
+    }
+
     public function members(string $hash, int $cursor, int $limit): array
     {
         $qb = $this->db->getQueryBuilder();

@@ -81,4 +81,18 @@ class ReviewServiceTest extends TestCase
         $this->assertSame('revision', $page['items'][0]['etag']);
         $this->assertSame('not_checked', $page['items'][0]['integrity']);
     }
+
+    public function testMissingFindingsAreBoundedIndexOnlyResults(): void
+    {
+        $mapper=$this->createMock(ReviewMapper::class);
+        $mapper->expects($this->once())->method('missingFindings')->with(0,2,'alice','/alice/files/photos','image/png')->willReturn([
+            ['id'=>7,'owner'=>'alice','path'=>'/alice/files/photos/a.png','file_hash'=>str_repeat('a',64),'mimetype'=>'image/png'],
+            ['id'=>8,'owner'=>'alice','path'=>'/alice/files/photos/b.png','file_hash'=>str_repeat('a',64),'mimetype'=>'image/png'],
+        ]);
+        $root=$this->createMock(IRootFolder::class);$root->expects($this->never())->method('getUserFolder');
+        $users=$this->createMock(IUserManager::class);$users->expects($this->never())->method('userExists');
+        $page=(new ReviewService($mapper,$root,$users))->missingFindings(0,1,'alice','/alice/files/photos','image/png');
+        $this->assertSame(7,$page['nextCursor']);$this->assertSame('indexed_candidates_without_reports',$page['scope']);
+        $this->assertSame([['id'=>7,'indexOwner'=>'alice','indexPath'=>'/alice/files/photos/a.png','indexMime'=>'image/png','candidateHash'=>str_repeat('a',64)]],$page['items']);
+    }
 }

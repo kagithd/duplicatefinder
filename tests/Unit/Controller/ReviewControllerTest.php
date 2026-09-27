@@ -90,4 +90,18 @@ class ReviewControllerTest extends TestCase
         $this->assertSame('/alice/files/current.png',$response->getData()['indexPath']);
         $this->assertSame(404,$controller->reference(8)->getStatus());
     }
+
+    public function testMissingFindingsRequireAdminAndBoundedValidFilters(): void
+    {
+        foreach ([null,'reader'] as $uid) {
+            $service=$this->createMock(ReviewService::class);
+            $this->assertSame(403,$this->controller($uid,false,$service)->missingFindings()->getStatus());
+        }
+        $service=$this->createMock(ReviewService::class);
+        $service->expects($this->once())->method('missingFindings')->with(7,25,'alice','/alice/files','image/png')->willReturn(['items'=>[],'nextCursor'=>null]);
+        $c=$this->controller('admin',true,$service);
+        foreach ([[-1,25,'','',''],[0,101,'','',''],[0,0,'','',''],[0,25,'','relative',''],[0,25,'','/a/../b',''],[0,25,'','','image/*'],[0,25,'','','not-a-mime'],[0,25,str_repeat('x',256),'','']] as $args)
+            $this->assertSame(400,$c->missingFindings(...$args)->getStatus());
+        $this->assertSame(200,$c->missingFindings(7,25,'alice','/alice/files','image/png')->getStatus());
+    }
 }

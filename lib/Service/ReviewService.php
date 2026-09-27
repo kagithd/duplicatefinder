@@ -33,6 +33,17 @@ class ReviewService
         return ['items' => $items, 'nextCursor' => $more ? end($items)['hash'] : null];
     }
 
+    public function missingFindings(int $cursor, int $limit, string $owner = '', string $folder = '', string $mime = ''): array
+    {
+        $rows = $this->mapper->missingFindings($cursor, $limit + 1, $owner, $folder, $mime);
+        $more = count($rows) > $limit;
+        $items = array_map(static fn (array $row): array => [
+            'id' => (int)$row['id'], 'indexOwner' => $row['owner'], 'indexPath' => $row['path'],
+            'indexMime' => $row['mimetype'], 'candidateHash' => $row['file_hash'],
+        ], array_slice($rows, 0, $limit));
+        return ['items' => $items, 'nextCursor' => $more ? end($items)['id'] : null, 'scope' => 'indexed_candidates_without_reports'];
+    }
+
     public function members(string $hash, int $cursor, int $limit): array
     {
         $rows = $this->mapper->members($hash, $cursor, $limit + 1);

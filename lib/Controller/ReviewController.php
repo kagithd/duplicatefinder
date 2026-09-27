@@ -58,6 +58,18 @@ class ReviewController extends Controller
         return new DataResponse($this->service->groups($cursor, $limit, $owner, $folder));
     }
 
+    public function missingFindings(int $cursor = 0, int $pageSize = 25, string $owner = '', string $folder = '', string $mime = ''): DataResponse
+    {
+        if (!$this->isAdmin()) return new DataResponse([], 403);
+        if ($cursor < 0 || $pageSize < 1 || $pageSize > 100 || strlen($owner) > 255 ||
+            strpos($owner, "\0") !== false || strlen($folder) > 4096 || strpos($folder, "\0") !== false ||
+            ($folder !== '' && (!str_starts_with($folder, '/') || in_array('..', explode('/', $folder), true) || in_array('.', explode('/', $folder), true))) ||
+            strlen($mime) > 200 || ($mime !== '' && !preg_match('~\A[a-zA-Z0-9!#$&^_.+-]+/[a-zA-Z0-9!#$&^_.+-]+\z~', $mime))) {
+            return new DataResponse(['error' => 'Invalid missing-finding filters'], 400);
+        }
+        return new DataResponse($this->service->missingFindings($cursor, $pageSize, $owner, $folder, $mime));
+    }
+
     public function reference(int $appRef): DataResponse
     {
         if (!$this->isAdmin()) return new DataResponse([], 403);
