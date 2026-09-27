@@ -48,7 +48,10 @@ test('renders escaped selected owners and paths and reviews an exact immutable r
  const code=babel.transformSync(sfc.script.content,{babelrc:false,configFile:false,plugins:['@babel/plugin-transform-modules-commonjs']}).code
  const mod={exports:{}}
  const calls=[]
- const record={planId:'x',revision:2,creator:'reviewer',createdAt:1,hash:'a'.repeat(64),state:'decision_draft',executable:false,note:'saved',members:[]}
+ const record={planId:'x',revision:2,creator:'reviewer',createdAt:1,hash:'a'.repeat(64),state:'decision_draft',executable:false,note:'saved',indexActions:[],members:[
+ {appRef:41,action:'keep',observed:{owner:'owner-a',indexOwner:'recipient-b',indexPath:'/recipient-b/files/<img src=x>',path:'/recipient-b/files/shared.png',nodeId:12,storageId:'home::owner-a'},reason:'Best copy',manualAssessment:{status:'content_visible',note:'Blue frame',source:{previewId:5,evidenceId:7,scope:'original_first_frame_scaled'}},evidence:[{id:7,createdAt:1,record:{report:{status:'passed',scope:'original_all_exposed_frames',frames_decoded:2,reason:'decoded',checker:{id:'image',version:'1',ruleVersion:'1'}}}}]},
+ {appRef:42,action:'remove',observed:{owner:'owner-b',indexOwner:'owner-b',indexPath:'/owner-b/files/copy.png'},manualAssessment:{status:'not_assessed',note:''},evidence:[]}
+ ]}
  new Function('require','module','exports',code)(n=>n==='@nextcloud/axios'?{get:async url=>{calls.push(url);return {data:record}}}:n==='@nextcloud/router'?{generateUrl:x=>x}:n==='./ReviewPreview.vue'?{render:h=>h('div')}:require(n),mod,mod.exports)
  const c=mod.exports.default
  Object.assign(c,compiler.compileToFunctions(sfc.template.content))
@@ -61,6 +64,21 @@ test('renders escaped selected owners and paths and reviews an exact immutable r
  await vm.openRevision('x',2);await tick()
  assert.equal(calls[0],'/apps/duplicatefinder/api/review/plans/x/revisions/2')
  assert.match(vm.$el.querySelector('pre').textContent,/"executable": false/)
+ const summary=vm.$el.querySelector('[data-saved-summary]')
+ assert.ok(summary, 'saved proposal must be readable without raw JSON')
+ assert.match(summary.textContent,/Keep: 1/)
+ assert.match(summary.textContent,/Propose removal: 1/)
+ assert.match(summary.textContent,/owner-a/)
+ assert.match(summary.textContent,/recipient-b/)
+ assert.match(summary.textContent,/<img src=x>/)
+ assert.equal(summary.querySelector('img'),null)
+ assert.match(summary.textContent,/Blue frame/)
+ assert.match(summary.textContent,/All exposed frames decoded/)
+ assert.match(summary.textContent,/No technical finding selected/)
+ assert.match(summary.textContent,/Sharing consequences have not been determined/)
+ assert.equal(summary.querySelectorAll('[data-saved-member]').length,2)
+ assert.equal(vm.$el.querySelector('details').hasAttribute('open'),false)
+ assert.equal(summary.querySelectorAll('button,select,input,textarea').length,0)
  assert.equal(vm.decisions.length,1)
  vm.saved=true;await tick()
  const note=vm.$el.querySelector('textarea');note.value='changed';note.dispatchEvent(new window.Event('input'));await tick()
