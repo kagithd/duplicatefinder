@@ -34,7 +34,7 @@ class ReviewMapper
         $row = $this->reference($appRef);
         return $row !== null && !(bool)$row['ignored'] ? $row['file_hash'] : null;
     }
-    public function groups(string $cursor, int $limit): array
+    public function groups(string $cursor, int $limit, string $owner = '', string $folder = ''): array
     {
         $qb = $this->db->getQueryBuilder();
         // Portable SHA-256 validation (SQLite, PostgreSQL and MySQL). The index
@@ -54,6 +54,23 @@ class ReviewMapper
             ->having($qb->expr()->gte($qb->createFunction('COUNT(*)'), $qb->createNamedParameter(2, IQueryBuilder::PARAM_INT)))
             ->orderBy('file_hash', 'ASC')
             ->setMaxResults($limit);
+        // Select matching hashes before global aggregation. Filtering the outer
+        // rows would hide copies belonging to other users and change counts.
+        if ($owner !== '' || $folder !== '') {
+            $scope = $this->db->getQueryBuilder();
+            $scope->select('scope.file_hash')->from('duplicatefinder_finfo', 'scope')
+                ->where($scope->expr()->eq('scope.ignored', $qb->createNamedParameter(false, IQueryBuilder::PARAM_BOOL)))
+                ->andWhere($scope->expr()->gt('scope.file_hash', $qb->createNamedParameter($cursor)));
+            if ($owner !== '') $scope->andWhere($scope->expr()->eq('scope.owner', $qb->createNamedParameter($owner)));
+            if ($folder !== '') {
+                $prefix = rtrim($folder, '/') . '/';
+                $scope->andWhere($scope->expr()->eq(
+                    $scope->createFunction('SUBSTR(scope.path, 1, ' . $qb->createNamedParameter(mb_strlen($prefix, 'UTF-8'), IQueryBuilder::PARAM_INT) . ')'),
+                    $qb->createNamedParameter($prefix)));
+            }
+            // Bind all parameters on the outer builder; the subquery stays SQL-only.
+            $qb->andWhere($qb->expr()->in('file_hash', $qb->createFunction($scope->getSQL())));
+        }
         $result = $qb->executeQuery();
         try {
             return array_map(static fn (array $row): array => [

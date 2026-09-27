@@ -69,4 +69,13 @@ class ReviewControllerTest extends TestCase
             $this->assertStringNotContainsString('@PublicPage', $doc);
         }
     }
+    public function testScopeFiltersAreForwardedAndMalformedPathsRejected(): void {
+        $service = $this->createMock(ReviewService::class);
+        $service->expects($this->once())->method('groups')->with('',25,'alice','/alice/files/photos')->willReturn(['items'=>[], 'nextCursor'=>null]);
+        $controller=$this->controller('admin',true,$service);
+        $this->assertSame(200,$controller->groups('',25,'alice','/alice/files/photos')->getStatus());
+        foreach (['relative/path','/alice/../bob',"/alice/\0bad"] as $path) {
+            $this->assertSame(400,$controller->groups('',25,'alice',$path)->getStatus());
+        }
+    }
 }

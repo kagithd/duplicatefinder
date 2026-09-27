@@ -360,3 +360,27 @@ test('saved sharing review displays historical rights and distinguishes unknown 
  assert.match(vm.$el.querySelector('[data-saved-summary]').textContent,/unobserved sharing consequences remain unknown/)
  dispose(vm)
 })
+test('scope filters apply explicitly, reset cursor, preserve drafts and ignore late group responses', async () => {
+ const calls=[]; let release
+ const vm=mount(async(url,options)=>{
+  calls.push({...options.params})
+  if(options.params.owner==='alice') return new Promise(resolve=>{release=resolve})
+  return {data:{items:[{hash:hashA,referenceCount:2}],nextCursor:hashA}}
+ })
+ await tick()
+ vm.$refs.plan.choose({id:7,indexOwner:'alice',indexPath:'/alice/files/a'},'keep',null)
+ const draft=JSON.stringify(vm.$refs.plan.decisions)
+ const owner=vm.$el.querySelector('[data-filter-owner]'); assert.ok(owner)
+ owner.value='alice';owner.dispatchEvent(new window.Event('input'))
+ const folder=vm.$el.querySelector('[data-filter-folder]');folder.value='/alice/files/photos';folder.dispatchEvent(new window.Event('input'));await tick()
+ assert.equal(calls.length,1)
+ vm.$el.querySelector('[data-apply-filters]').click();await tick()
+ assert.deepEqual(calls[1],{cursor:'',limit:25,owner:'alice',folder:'/alice/files/photos'})
+ vm.$el.querySelector('[data-reset-filters]').click();await tick()
+ assert.equal(calls[2].owner,'');assert.equal(calls[2].folder,'')
+ release({data:{items:[{hash:hashB,referenceCount:2}],nextCursor:null}});await tick()
+ assert.equal(vm.groups[0].hash,hashA)
+ assert.equal(JSON.stringify(vm.$refs.plan.decisions),draft)
+ assert.match(vm.$el.textContent,/Other copies in matching groups remain visible/)
+ dispose(vm)
+})

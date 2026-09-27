@@ -25,9 +25,9 @@ class ReviewService
         $row = $this->mapper->reference($appRef);
         return $row === null ? null : $this->observe($row);
     }
-    public function groups(string $cursor, int $limit): array
+    public function groups(string $cursor, int $limit, string $owner = '', string $folder = ''): array
     {
-        $rows = $this->mapper->groups($cursor, $limit + 1);
+        $rows = $this->mapper->groups($cursor, $limit + 1, $owner, $folder);
         $more = count($rows) > $limit;
         $items = array_slice($rows, 0, $limit);
         return ['items' => $items, 'nextCursor' => $more ? end($items)['hash'] : null];

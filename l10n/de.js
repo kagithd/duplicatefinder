@@ -658,6 +658,14 @@ OC.L10N.register(
     "Only this page is displayed. Pages are not an atomic snapshot. Inclusion in a proposal requires explicit selection within that proposal." : "Angezeigt wird nur diese Seite. Die Seiten bilden keinen atomaren Schnappschuss. Die Übernahme erfordert eine ausdrückliche Auswahl innerhalb des Vorschlags.",
     "Sharing consequences have not been fully determined. Multiple references may point to the same physical file; counts do not represent recoverable space." : "Freigabefolgen sind nicht vollständig ermittelt. Mehrere Fundstellen können dieselbe physische Datei bezeichnen; die Anzahl entspricht keinem freisetzbaren Speicherplatz.",
     "Conflict: file metadata, selected sharing pages or the predecessor revision changed. The draft remains unchanged. Review the conflict before trying again." : "Konflikt: Dateimetadaten, ausgewählte Freigabeseiten oder die Vorgängerrevision haben sich geändert. Der Entwurf bleibt unverändert. Konflikt vor einem erneuten Versuch prüfen.",
+    "Indexed user (exact)" : "Benutzer im Index (exakt)",
+    "Indexed folder (absolute path)" : "Ordner im Index (absoluter Pfad)",
+    "Apply filters" : "Filter anwenden",
+    "Reset filters" : "Filter zurücksetzen",
+    "Other copies in matching groups remain visible. Filters use stored index users and paths, not verified current ownership." : "Andere Kopien passender Gruppen bleiben sichtbar. Die Filter verwenden gespeicherte Indexbenutzer und Pfade, keine bestätigte aktuelle Eigentümerschaft.",
+    "Applied scope" : "Angewendeter Umfang",
+    "All users" : "Alle Benutzer",
+    "All folders" : "Alle Ordner",
     "The viewer is not available" : "Der Betrachter ist nicht verfügbar"
 },
 "nplurals=2; plural=(n != 1);");

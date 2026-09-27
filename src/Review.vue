@@ -4,7 +4,15 @@
 			<h1>{{ t('duplicatefinder', 'Administrative duplicate review') }}</h1>
 			<p>{{ t('duplicatefinder', 'Read-only review of indexed SHA-256 candidates across users. Stored hashes have not been rechecked. Reference counts do not establish physical copies or file integrity.') }}</p>
 		</header>
-		<div class="review__columns">
+		<form class="review__filters" @submit.prevent="applyFilters">
+            <label>{{ t('duplicatefinder', 'Indexed user (exact)') }}<input v-model="filterOwner" data-filter-owner maxlength="255"></label>
+            <label>{{ t('duplicatefinder', 'Indexed folder (absolute path)') }}<input v-model="filterFolder" data-filter-folder maxlength="4096"></label>
+            <button type="submit" data-apply-filters>{{ t('duplicatefinder', 'Apply filters') }}</button>
+            <button type="button" data-reset-filters @click="resetFilters">{{ t('duplicatefinder', 'Reset filters') }}</button>
+            <p>{{ t('duplicatefinder', 'Other copies in matching groups remain visible. Filters use stored index users and paths, not verified current ownership.') }}</p>
+            <p>{{ t('duplicatefinder', 'Applied scope') }}: {{ appliedOwner || t('duplicatefinder', 'All users') }} &middot; {{ appliedFolder || t('duplicatefinder', 'All folders') }}</p>
+        </form>
+        <div class="review__columns">
 			<section class="review__groups" :aria-busy="groupsLoading" aria-labelledby="review-groups-heading">
 				<h2 id="review-groups-heading">
 					{{ t('duplicatefinder', 'Indexed groups') }}
@@ -174,6 +182,7 @@ export default {
 	components: { ReviewPlan, ReviewPreview, ReviewChecks, ReviewShares },
 	data() {
 		return {
+			filterOwner: '', filterFolder: '', appliedOwner: '', appliedFolder: '',
 			groups: [],
 			members: [],
 			selectedHash: '',
@@ -200,6 +209,8 @@ export default {
 		this.memberRequest++
 	},
 	methods: {
+		applyFilters() { this.appliedOwner = this.filterOwner; this.appliedFolder = this.filterFolder; this.loadGroups('') },
+		resetFilters() { this.filterOwner = ''; this.filterFolder = ''; this.applyFilters() },
 		reportOf(entry) {
 			return entry.record?.report || {}
 		},
@@ -263,7 +274,7 @@ export default {
 			this.groupsLoading = true
 			this.groupsError = false
 			try {
-				const { data } = await axios.get(generateUrl('/apps/duplicatefinder/api/review/groups'), { params: { cursor, limit: 25 } })
+				const { data } = await axios.get(generateUrl('/apps/duplicatefinder/api/review/groups'), { params: { cursor, limit: 25, owner: this.appliedOwner, folder: this.appliedFolder } })
 				if (request !== this.groupRequest) return
 				this.groups = data.items
 				this.nextGroupCursor = data.nextCursor
@@ -303,6 +314,11 @@ export default {
 </script>
 
 <style scoped>
+.review__filters { padding: 16px; border-bottom: 1px solid var(--color-border); }
+.review__filters label { display: block; margin: 8px 0; }
+.review__filters input { display: block; width: min(100%, 650px); }
+.review__filters p { overflow-wrap: anywhere; }
+.review__filters button { margin: 4px; }
 .review {
 	width: 100%;
 	height: 100%;

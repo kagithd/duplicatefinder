@@ -42,7 +42,7 @@ class ReviewController extends Controller
         return new TemplateResponse($this->appName, 'Review');
     }
 
-    public function groups(string $cursor = '', int $limit = 25): DataResponse
+    public function groups(string $cursor = '', int $limit = 25, string $owner = '', string $folder = ''): DataResponse
     {
         if (!$this->isAdmin()) {
             return new DataResponse([], 403);
@@ -50,7 +50,12 @@ class ReviewController extends Controller
         if ($limit < 1 || $limit > 100 || ($cursor !== '' && !preg_match('/\A[a-f0-9]{64}\z/', $cursor))) {
             return new DataResponse(['error' => 'Invalid page parameters'], 400);
         }
-        return new DataResponse($this->service->groups($cursor, $limit));
+        if (strlen($owner) > 255 || strpos($owner, "\0") !== false || strlen($folder) > 4096 ||
+            strpos($folder, "\0") !== false || ($folder !== '' && (!str_starts_with($folder, '/') ||
+            in_array('..', explode('/', $folder), true) || in_array('.', explode('/', $folder), true)))) {
+            return new DataResponse(['error' => 'Invalid scope filters'], 400);
+        }
+        return new DataResponse($this->service->groups($cursor, $limit, $owner, $folder));
     }
 
     public function members(string $hash, int $cursor = 0, int $limit = 50): DataResponse
