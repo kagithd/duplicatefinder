@@ -11,6 +11,7 @@ return [
        ['name' => 'review#groups', 'url' => '/api/review/groups', 'verb' => 'GET'],
        ['name' => 'review#members', 'url' => '/api/review/groups/{hash}/members', 'verb' => 'GET'],
 
+       ['name' => 'detail_artifact#getDetail', 'url' => '/api/review/members/{appRef}/evidence/{evidenceId}/details/{detailId}', 'verb' => 'GET'],
        ['name' => 'preview_artifact#getPreview', 'url' => '/api/review/members/{appRef}/evidence/{evidenceId}/preview', 'verb' => 'GET'],
 
        ['name' => 'review#missingFindings', 'url' => '/api/review/missing-findings', 'verb' => 'GET'],
