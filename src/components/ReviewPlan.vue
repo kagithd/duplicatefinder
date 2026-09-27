@@ -28,6 +28,12 @@
 				<p v-if="decision.manualAssessment.source">{{ t('duplicatefinder', 'Assessed historical preview') }}: {{ decision.manualAssessment.source.previewId }} · {{ decision.manualAssessment.source.scope }}</p>
 				<label v-if="decision.manualAssessment.status !== 'not_assessed'">{{ t('duplicatefinder', 'Assessment note') }}<textarea v-model="decision.manualAssessment.note" :disabled="busy" maxlength="2048" @input="saved = false" /></label>
 				<button v-if="decision.manualAssessment.status !== 'not_assessed'" type="button" :disabled="busy" @click="clearAssessment(decision)">{{ t('duplicatefinder', 'Clear assessment') }}</button>
+				<p>{{ t('duplicatefinder', 'Selected sharing pages in this proposal') }}: {{ sharingCount() }}/20</p>
+				<ol><li v-for="entry in decision.sharePages" :key="shareKey(entry.query)">
+					<p>{{ entry.expected.anchor.path }} · {{ t('duplicatefinder', 'Share type') }} {{ entry.query.type }} · {{ t('duplicatefinder', 'Page offset') }} {{ entry.query.offset }}</p>
+					<button type="button" :disabled="busy" @click="removeSharing(decision, entry)">{{ t('duplicatefinder', 'Remove sharing page from proposal') }}</button>
+				</li></ol>
+				<ReviewShares :app-ref="decision.appRef" :selectable="true" :disabled="busy" @selected="selectSharing(decision, $event)" />
 				<ReviewPreview v-for="evidenceId in decision.evidenceIds" :key="decision.appRef + ':' + evidenceId" :app-ref="decision.appRef" :evidence-id="evidenceId" :allow-assessment="true" :disabled="busy" @assessed="assess(decision, $event)" />
 				<button type="button" :disabled="busy" @click="removeDecision(decision)">
 					{{ t('duplicatefinder', 'Remove selection') }}
@@ -86,7 +92,7 @@
 			<section data-saved-summary :aria-label="t('duplicatefinder', 'Saved decisions')">
 				<p>{{ t('duplicatefinder', 'Saved decisions') }} · {{ t('duplicatefinder', 'Keep') }}: {{ countAction('keep') }} · {{ t('duplicatefinder', 'Propose removal') }}: {{ countAction('remove') }} · {{ t('duplicatefinder', 'Exclude from proposal') }}: {{ countAction('exclude') }}</p>
 				<p><strong>{{ t('duplicatefinder', 'Historical record only. Current file revisions and indexed hashes have not been rechecked. No execution authorization.') }}</strong></p>
-				<p>{{ t('duplicatefinder', 'Sharing consequences have not been determined. Multiple references may point to the same physical file; counts do not represent recoverable space.') }}</p>
+				<p>{{ t('duplicatefinder', 'Sharing consequences have not been fully determined. Multiple references may point to the same physical file; counts do not represent recoverable space.') }}</p>
 				<p>{{ t('duplicatefinder', 'Proposal note') }}: {{ record.note || '—' }}</p>
 				<p>{{ t('duplicatefinder', 'Group hash') }}: <code>{{ record.hash }}</code></p>
 				<p>{{ t('duplicatefinder', 'Index actions') }}: {{ (record.indexActions || []).length }}</p>
@@ -103,6 +109,21 @@
 						<p>{{ t('duplicatefinder', 'Reason') }}: {{ member.reason || '—' }}</p>
 						<p>{{ assessmentLabel((member.manualAssessment || {}).status) }} · {{ (member.manualAssessment || {}).note || '—' }}</p>
 						<p v-if="member.manualAssessment && member.manualAssessment.source">{{ t('duplicatefinder', 'Assessed historical preview') }}: {{ member.manualAssessment.source.previewId }} · {{ t('duplicatefinder', 'Finding IDs') }}: {{ member.manualAssessment.source.evidenceId }} · {{ member.manualAssessment.source.scope }}</p>
+						<h5>{{ t('duplicatefinder', 'Saved sharing observations') }}</h5>
+						<p>{{ t('duplicatefinder', 'Selected pages only; unobserved sharing consequences remain unknown.') }}</p>
+						<p v-if="!storedSharing(member).length">{{ t('duplicatefinder', 'No sharing pages were included in this revision.') }}</p>
+						<div v-for="entry in storedSharing(member)" :key="shareKey(entry.query)" data-saved-sharing>
+							<p>{{ t('duplicatefinder', 'Share anchor') }}: {{ entry.page.anchor.path }} · {{ t('duplicatefinder', 'Share type') }} {{ entry.query.type }} · {{ t('duplicatefinder', 'Page offset') }} {{ entry.query.offset }}</p>
+							<p>{{ t('duplicatefinder', 'Server rechecked at') }}: {{ timestamp(entry.page.observedAt) }}</p>
+							<p v-if="!entry.page.items.length">{{ t('duplicatefinder', 'No entries on this saved page; other shares are not excluded.') }}</p>
+							<ul><li v-for="share in entry.page.items" :key="share.id">
+								<p>{{ share.recipient || t('duplicatefinder', 'Public link') }} · {{ share.recipientPath || t('duplicatefinder', 'Not determined') }}</p>
+								<p>{{ sharingPathStatus(share.pathStatus) }}</p>
+								<p>{{ t('duplicatefinder', 'Deletion permission at observed recipient path') }}: {{ sharingPermission(share.deletable) }}</p>
+								<p>{{ t('duplicatefinder', 'Recorded expiration') }}: {{ share.expiration || '—' }} · {{ t('duplicatefinder', 'Recorded share status') }}: {{ share.status }}</p>
+								<p>{{ t('duplicatefinder', 'Share permissions (bitmask)') }}: {{ share.permissions }} · {{ t('duplicatefinder', 'Effective file permissions (bitmask)') }}: {{ share.effectivePermissions == null ? '—' : share.effectivePermissions }}</p>
+							</li></ul>
+						</div>
 						<p v-if="!(member.evidence || []).length">{{ t('duplicatefinder', 'No technical finding selected') }}</p>
 						<ul v-else>
 							<li v-for="finding in member.evidence" :key="finding.id">
@@ -120,13 +141,14 @@
 	</section>
 </template>
 <script>
+import ReviewShares from './ReviewShares.vue'
 import ReviewPreview from './ReviewPreview.vue'
 import axios from '@nextcloud/axios'
 import { generateUrl } from '@nextcloud/router'
 const copy = value => JSON.parse(JSON.stringify(value))
 export default {
 	name: 'ReviewPlan',
-	components: { ReviewPreview },
+	components: { ReviewPreview, ReviewShares },
 	props: { hash: { type: String, default: '' } },
 	data() {
 		return { decisions: [], draftHash: '', note: '', predecessor: null, planId: null, signature: '', retryKey: '', busy: false, error: '', saved: false, plans: [], nextCursor: null, record: null, revisionInput: 1 }
@@ -134,6 +156,23 @@ export default {
 	mounted() { window.addEventListener('beforeunload', this.guardUnload) },
 	beforeDestroy() { window.removeEventListener('beforeunload', this.guardUnload) },
 	methods: {
+		shareKey(query) { return [query.depth, query.type, query.offset].join(':') },
+		sharingCount() { return this.decisions.reduce((count, member) => count + (member.sharePages || []).length, 0) },
+		selectSharing(decision, selection) {
+			if (this.busy || !this.decisions.includes(decision) || selection.appRef !== decision.appRef || selection.expected?.appRef !== decision.appRef) return
+			const stable = value => JSON.stringify(Object.entries(value || {}).sort(([a], [b]) => a.localeCompare(b)))
+			if (stable(selection.expected.observed) !== stable(decision.expected)) { this.error = this.t('duplicatefinder', 'Sharing observation belongs to another file revision. Refresh the selection before saving.'); return }
+			const pages = decision.sharePages || []
+			const index = pages.findIndex(entry => this.shareKey(entry.query) === this.shareKey(selection.query))
+			if (index < 0 && this.sharingCount() >= 20) { this.error = this.t('duplicatefinder', 'A proposal can include at most 20 sharing pages.'); return }
+			const entry = { query: copy(selection.query), expected: copy(selection.expected) }
+			if (index < 0) pages.push(entry); else pages.splice(index, 1, entry)
+			this.$set(decision, 'sharePages', pages); this.saved = false; this.error = ''
+		},
+		removeSharing(decision, entry) { if (this.busy) return; const index = (decision.sharePages || []).indexOf(entry); if (index >= 0) { decision.sharePages.splice(index, 1); this.saved = false } },
+		sharingPermission(value) { return ReviewShares.methods.permission.call(this, value) },
+		sharingPathStatus(value) { return ReviewShares.methods.pathStatus.call(this, value) },
+		storedSharing(member) { return member.sharing?.pages || [] },
 		observation(member) { return member.observed || member.expected || {} },
 		countAction(action) { return (this.record.members || []).filter(member => member.action === action).length },
 		actionLabel(action) { return this.t('duplicatefinder', { keep: 'Keep', remove: 'Propose removal', exclude: 'Exclude from proposal' }[action] || 'Unknown action') },
@@ -172,7 +211,7 @@ export default {
 			if (existing) { this.changeAction(existing, action); return }
 			if (this.decisions.length >= 100) { this.error = this.t('duplicatefinder', 'The proposal is limited to 100 explicitly selected references.'); return }
 			this.draftHash = this.hash
-			this.decisions.push({ appRef: member.id, action, expected: copy(member), evidenceIds: evidence?.entry ? [evidence.entry.id] : [], manualAssessment: { status: 'not_assessed', note: '' }, reason: '' })
+			this.decisions.push({ appRef: member.id, action, expected: copy(member), evidenceIds: evidence?.entry ? [evidence.entry.id] : [], manualAssessment: { status: 'not_assessed', note: '' }, reason: '', sharePages: [] })
 			this.saved = false
 			this.error = ''
 		},
@@ -197,7 +236,7 @@ export default {
 				const { data } = await axios.post(generateUrl(url), { payload: body })
 				this.record = data; this.revisionInput = data.revision; this.saved = true
 			} catch (error) {
-				this.error = this.t('duplicatefinder', error.response?.status === 409 ? 'Conflict: file metadata or the predecessor revision changed. The draft remains unchanged. Review the conflict before trying again.' : 'Proposal could not be saved. The draft remains available for retry.')
+				this.error = this.t('duplicatefinder', error.response?.status === 409 ? 'Conflict: file metadata, selected sharing pages or the predecessor revision changed. The draft remains unchanged. Review the conflict before trying again.' : 'Proposal could not be saved. The draft remains available for retry.')
 			} finally { this.busy = false }
 		},
 		async loadPlans(cursor) {
@@ -209,7 +248,7 @@ export default {
 			try { const { data } = await axios.get(generateUrl('/apps/duplicatefinder/api/review/plans/' + encodeURIComponent(planId) + '/revisions/' + encodeURIComponent(revision))); this.record = data; this.revisionInput = data.revision } catch (error) { this.error = this.t('duplicatefinder', 'Saved revision could not be loaded.') } finally { this.busy = false }
 		},
 		editRevision() {
-			this.decisions = this.record.members.map(member => ({ appRef: member.appRef, action: member.action, expected: copy(member.observed || member.expected), evidenceIds: copy(member.evidenceIds || (member.evidence || []).map(entry => entry.id)), manualAssessment: copy(member.manualAssessment), reason: member.reason || '' })); this.draftHash = this.record.hash; this.note = this.record.note; this.planId = this.record.planId; this.predecessor = this.record.revision; this.signature = ''; this.saved = false
+			this.decisions = this.record.members.map(member => ({ appRef: member.appRef, action: member.action, expected: copy(member.observed || member.expected), evidenceIds: copy(member.evidenceIds || (member.evidence || []).map(entry => entry.id)), manualAssessment: copy(member.manualAssessment), reason: member.reason || '', sharePages: (member.sharing?.pages || []).map(entry => ({ query: copy(entry.query), expected: copy(entry.page) })) })); this.draftHash = this.record.hash; this.note = this.record.note; this.planId = this.record.planId; this.predecessor = this.record.revision; this.signature = ''; this.saved = false
 		},
 		async download() {
 			this.busy = true; this.error = ''

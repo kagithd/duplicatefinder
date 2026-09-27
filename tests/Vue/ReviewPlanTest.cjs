@@ -7,7 +7,7 @@ function component(axios) {
  const sfc = compiler.parseComponent(fs.readFileSync('src/components/ReviewPlan.vue', 'utf8'))
  const code = babel.transformSync(sfc.script.content, {babelrc:false, configFile:false, plugins:['@babel/plugin-transform-modules-commonjs']}).code
  const mod = {exports:{}}
- new Function('require','module','exports',code)(n => n === '@nextcloud/axios' ? axios : n === '@nextcloud/router' ? {generateUrl:x=>x} : n==='./ReviewPreview.vue'?{render:h=>h('div')}:require(n),mod,mod.exports)
+ new Function('require','module','exports',code)(n => n === '@nextcloud/axios' ? axios : n === '@nextcloud/router' ? {generateUrl:x=>x} : (n==='./ReviewPreview.vue'||n==='./ReviewShares.vue')?{render:h=>h('div')}:require(n),mod,mod.exports)
  const c = mod.exports.default
  const vm = {...c.data(), t:(_,s)=>s, $set:(o,k,v)=>{o[k]=v}, hash:'a'.repeat(64)}
  for(const [k,v] of Object.entries(c.methods)) vm[k]=v.bind(vm)
@@ -52,7 +52,7 @@ test('renders escaped selected owners and paths and reviews an exact immutable r
  {appRef:41,action:'keep',observed:{owner:'owner-a',indexOwner:'recipient-b',indexPath:'/recipient-b/files/<img src=x>',path:'/recipient-b/files/shared.png',nodeId:12,storageId:'home::owner-a'},reason:'Best copy',manualAssessment:{status:'content_visible',note:'Blue frame',source:{previewId:5,evidenceId:7,scope:'original_first_frame_scaled'}},evidence:[{id:7,createdAt:1,record:{report:{status:'passed',scope:'original_all_exposed_frames',frames_decoded:2,reason:'decoded',checker:{id:'image',version:'1',ruleVersion:'1'}}}}]},
  {appRef:42,action:'remove',observed:{owner:'owner-b',indexOwner:'owner-b',indexPath:'/owner-b/files/copy.png'},manualAssessment:{status:'not_assessed',note:''},evidence:[]}
  ]}
- new Function('require','module','exports',code)(n=>n==='@nextcloud/axios'?{get:async url=>{calls.push(url);return {data:record}}}:n==='@nextcloud/router'?{generateUrl:x=>x}:n==='./ReviewPreview.vue'?{render:h=>h('div')}:require(n),mod,mod.exports)
+ new Function('require','module','exports',code)(n=>n==='@nextcloud/axios'?{get:async url=>{calls.push(url);return {data:record}}}:n==='@nextcloud/router'?{generateUrl:x=>x}:(n==='./ReviewPreview.vue'||n==='./ReviewShares.vue')?{render:h=>h('div')}:require(n),mod,mod.exports)
  const c=mod.exports.default
  Object.assign(c,compiler.compileToFunctions(sfc.template.content))
  const vm=new Vue({...c,propsData:{hash:'a'.repeat(64)},methods:{...c.methods,t:(_,s)=>s}}).$mount()
@@ -75,7 +75,7 @@ test('renders escaped selected owners and paths and reviews an exact immutable r
  assert.match(summary.textContent,/Blue frame/)
  assert.match(summary.textContent,/All exposed frames decoded/)
  assert.match(summary.textContent,/No technical finding selected/)
- assert.match(summary.textContent,/Sharing consequences have not been determined/)
+ assert.match(summary.textContent,/Sharing consequences have not been fully determined/)
  assert.equal(summary.querySelectorAll('[data-saved-member]').length,2)
  assert.equal(vm.$el.querySelector('details').hasAttribute('open'),false)
  assert.equal(summary.querySelectorAll('button,select,input,textarea').length,0)
@@ -130,4 +130,22 @@ test('changing the judgement of the same artifact preserves the written note',()
  vm.assess(d,{appRef:9,status:'problem',source})
  assert.equal(d.manualAssessment.note,'Keep this explanation')
  assert.equal(d.manualAssessment.status,'problem')
+})
+
+test('explicit sharing selection is bounded, copied, replaceable and preserved for revision edits', async()=>{
+ let payload;const vm=component({post:async(u,p)=>{payload=p.payload;throw {response:{status:409}}}})
+ const observed={id:7,indexOwner:'alice',indexPath:'/alice/files/a',etag:'v1'}
+ vm.choose(observed,'keep',null);const d=vm.decisions[0]
+ const event={appRef:7,query:{depth:1,type:0,offset:0},expected:{appRef:7,observed:{...observed},observedAt:10,items:[{recipient:'bob'}]}}
+ vm.selectSharing(d,event);event.expected.items[0].recipient='changed'
+ assert.equal(d.sharePages[0].expected.items[0].recipient,'bob')
+ vm.selectSharing(d,{...event,expected:{...event.expected,observed:{...observed,etag:'v2'}}});assert.equal(d.sharePages.length,1)
+ await vm.save();assert.equal(payload.members[0].sharePages[0].expected.items[0].recipient,'bob');assert.equal(d.sharePages.length,1)
+ for(let i=1;i<20;i++)vm.selectSharing(d,{...event,query:{depth:1,type:0,offset:i*25}})
+ assert.equal(d.sharePages.length,20)
+ vm.selectSharing(d,{...event,query:{depth:2,type:0,offset:0}});assert.equal(d.sharePages.length,20)
+ vm.selectSharing(d,event);assert.equal(d.sharePages.length,20);assert.equal(d.sharePages[0].expected.items[0].recipient,'changed')
+ vm.removeSharing(d,d.sharePages[0]);assert.equal(d.sharePages.length,19)
+ vm.record={planId:'x',revision:1,hash:vm.hash,note:'',members:[{appRef:7,action:'keep',observed,evidence:[],manualAssessment:{status:'not_assessed',note:''},sharing:{pages:[{query:event.query,page:event.expected}]}}]}
+ vm.editRevision();assert.deepEqual(vm.decisions[0].sharePages,[{query:event.query,expected:event.expected}])
 })

@@ -10,12 +10,14 @@ class PlanService {
     private ReviewMapper $index;
     private EvidenceService $evidence;
     private PreviewArtifactService $previews;
-    public function __construct(PlanMapper $mapper,ReviewService $review,ReviewMapper $index,EvidenceService $evidence,PreviewArtifactService $previews) {
+    private PlanShareService $sharing;
+    public function __construct(PlanMapper $mapper,ReviewService $review,ReviewMapper $index,EvidenceService $evidence,PreviewArtifactService $previews, PlanShareService $sharing) {
         $this->mapper=$mapper;
         $this->review=$review;
         $this->index=$index;
         $this->evidence=$evidence;
         $this->previews=$previews;
+        $this->sharing=$sharing;
     }
     public function create(array $payload,string $creator):array {
         return $this->write(null,0,$payload,$creator);
@@ -65,8 +67,9 @@ class PlanService {
         $physical=[];
         $keep=0;
         $remove=0;
+        $sharingPageCount=0;
         foreach($p['members'] as $m) {
-            if(!is_array($m)||array_diff(array_keys($m),['appRef','action','expected','evidenceIds','manualAssessment','reason'])) {
+            if(!is_array($m)||array_diff(array_keys($m),['appRef','action','expected','evidenceIds','manualAssessment','reason','sharePages'])) {
                 throw new \InvalidArgumentException('Invalid member fields');
             }
             $ref=$m['appRef']??null;
@@ -113,9 +116,14 @@ class PlanService {
                 throw new \InvalidArgumentException('Invalid evidence selection');
             }
             $this->validateManualSource($manual, $ref, $ids, $current);
+            $sharePages=$m['sharePages']??[];
+            if (!is_array($sharePages) || !array_is_list($sharePages) || ($sharingPageCount+=count($sharePages))>20) {
+                throw new \InvalidArgumentException('Plan is limited to 20 selected sharing pages');
+            }
+            $sharing=$this->sharing->capture($ref,$sharePages,$current);
             $member = ['appRef' => $ref, 'action' => $action, 'observed' => $current,
                 'candidateHash' => $p['hash'], 'evidence' => [],
-                'manualAssessment' => $manual, 'reason' => $m['reason']];
+                'manualAssessment' => $manual, 'reason' => $m['reason'], 'sharing' => $sharing];
             // Account for the member and array comma before loading any findings.
             $this->addRecordBytes($recordBytes,
                 strlen(json_encode($member, JSON_THROW_ON_ERROR)) + ($members === [] ? 0 : 1));

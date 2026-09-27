@@ -1,6 +1,7 @@
 <?php
 namespace OCA\DuplicateFinder\Tests\Unit\Service;
 use OCA\DuplicateFinder\Service\PlanService;
+use OCA\DuplicateFinder\Service\PlanShareService;
 use OCA\DuplicateFinder\Service\ReviewService;
 use OCA\DuplicateFinder\Service\EvidenceService;
 use OCA\DuplicateFinder\Db\PlanMapper;
@@ -8,7 +9,7 @@ use OCA\DuplicateFinder\Db\ReviewMapper;
 use OCA\DuplicateFinder\Exception\EvidenceConflictException;
 use PHPUnit\Framework\TestCase;
 class PlanServiceTest extends TestCase  {
-    private function fixture(array $overrides = [], bool $alias = false, ?string $candidate = null, ?EvidenceService $evidence = null, ?\OCA\DuplicateFinder\Service\PreviewArtifactService $previews = null): array  {
+    private function fixture(array $overrides = [], bool $alias = false, ?string $candidate = null, ?EvidenceService $evidence = null, ?\OCA\DuplicateFinder\Service\PreviewArtifactService $previews = null, ?PlanShareService $sharing = null): array  {
         $r=['id'=>1,'indexOwner'=>'alice','indexPath'=>'/alice/files/a','owner'=>'alice','path'=>'/alice/files/a','storageId'=>'home::alice','nodeId'=>4,'etag'=>'v1','size'=>12,'mtime'=>100,'availability'=>'available','candidateHash'=>str_repeat('a',64)];
         $r = array_merge($r, $overrides);
         $review=$this->createMock(ReviewService::class);
@@ -16,9 +17,30 @@ class PlanServiceTest extends TestCase  {
         $index=$this->createMock(ReviewMapper::class);
         $index->method('candidateHash')->willReturn($candidate ?? str_repeat('a',64));
         $mapper=$this->createMock(PlanMapper::class);
-        $service=new PlanService($mapper,$review,$index,$evidence ?? $this->createMock(EvidenceService::class), $previews ?? $this->createMock(\OCA\DuplicateFinder\Service\PreviewArtifactService::class));
+        $service=new PlanService($mapper,$review,$index,$evidence ?? $this->createMock(EvidenceService::class), $previews ?? $this->createMock(\OCA\DuplicateFinder\Service\PreviewArtifactService::class), $sharing ?? $this->createMock(PlanShareService::class));
         $member=['appRef'=>1,'action'=>'keep','expected'=>$r,'evidenceIds'=>[],'manualAssessment'=>['status'=>'not_assessed','note'=>''],'reason'=>''];
         return [$service,$mapper,['hash'=>str_repeat('a',64),'members'=>[$member],'indexActions'=>[],'note'=>'','idempotencyKey'=>'request-1']];
+    }
+    public function testPersistsServerValidatedSharingRatherThanBrowserFields(): void {
+        $sharing=$this->createMock(PlanShareService::class);
+        [$s,$m,$p]=$this->fixture([],false,null,null,null,$sharing);
+        $selected=[['query'=>['depth'=>0,'type'=>0,'offset'=>0],'expected'=>['appRef'=>1]]];
+        $p['members'][0]['sharePages']=$selected;
+        $server=['complete'=>false,'coverage'=>'selected_pages_only','pages'=>[['page'=>['observedAt'=>200]]]];
+        $sharing->expects($this->once())->method('capture')->with(1,$selected,$p['members'][0]['expected'])->willReturn($server);
+        $m->expects($this->once())->method('save')->willReturnCallback(function($id,$prev,$key,$digest,$record) use ($server) {
+            $this->assertSame($server,$record['members'][0]['sharing']);return $record;
+        });
+        $s->create($p,'admin');
+    }
+    public function testSharingConflictPreventsPersistence(): void {
+        $sharing=$this->createMock(PlanShareService::class);
+        [$s,$m,$p]=$this->fixture([],false,null,null,null,$sharing);
+        $p['members'][0]['sharePages']=[];
+        $sharing->method('capture')->willThrowException(new EvidenceConflictException('Shares changed'));
+        $m->expects($this->never())->method('save');
+        $this->expectException(EvidenceConflictException::class);
+        $s->create($p,'admin');
     }
     public function testPersistsOnlyExplicitSelectionAndNonExecutableDraft(): void  {
         [$s,$m,$p]=$this->fixture();
@@ -119,7 +141,7 @@ class PlanServiceTest extends TestCase  {
         if ($conflict) $mapper->expects($this->never())->method('save');
         else $mapper->expects($this->once())->method('save')->willReturnCallback(static fn($id,$prev,$key,$digest,$record) => $record);
         $service = new PlanService($mapper,$review,$index,$this->createMock(EvidenceService::class),
-            $this->createMock(\OCA\DuplicateFinder\Service\PreviewArtifactService::class));
+            $this->createMock(\OCA\DuplicateFinder\Service\PreviewArtifactService::class), $this->createMock(PlanShareService::class));
         $selection = static fn($ref,$action,$observed) => ['appRef'=>$ref,'action'=>$action,'expected'=>$observed,
             'evidenceIds'=>[],'manualAssessment'=>['status'=>'not_assessed','note'=>''],'reason'=>''];
         $payload = ['hash'=>str_repeat('a',64),'members'=>[$selection(1,$firstAction,$owner),$selection(2,$secondAction,$recipient)],

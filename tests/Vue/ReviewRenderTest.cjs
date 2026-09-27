@@ -22,8 +22,8 @@ function mount(get, post = async () => { throw new Error("unexpected mutation") 
     const code = babel.transformSync(sfc.script.content, { babelrc: false, configFile: false, plugins: ['@babel/plugin-transform-modules-commonjs'] }).code
     const module = { exports: {} }
     const fakeRequire = name => {
-        if (name === './components/ReviewShares.vue' || name === './components/ReviewChecks.vue' || name === './components/ReviewPlan.vue' || name === './components/ReviewPreview.vue' || name === './ReviewPreview.vue') {
-            const child = compiler.parseComponent(fs.readFileSync(path.join(__dirname, '../../src', name === './ReviewPreview.vue' ? './components/ReviewPreview.vue' : name), 'utf8'))
+        if (name === './ReviewShares.vue' || name === './components/ReviewShares.vue' || name === './components/ReviewChecks.vue' || name === './components/ReviewPlan.vue' || name === './components/ReviewPreview.vue' || name === './ReviewPreview.vue') {
+            const child = compiler.parseComponent(fs.readFileSync(path.join(__dirname, '../../src', name.startsWith('./components/') ? name : './components/' + name.slice(2)), 'utf8'))
             const childCode = babel.transformSync(child.script.content, { babelrc: false, configFile: false, plugins: ['@babel/plugin-transform-modules-commonjs'] }).code
             const childMod = { exports: {} }
             new Function('require', 'module', 'exports', childCode)(fakeRequire, childMod, childMod.exports)
@@ -342,5 +342,21 @@ test('plan preview requires an explicit loaded-image assessment and persists its
  assert.equal(submitted.members[0].manualAssessment.source.previewId,1)
  assert.equal(submitted.members[0].manualAssessment.source.evidenceId,7)
  assert.equal(submitted.members[0].manualAssessment.source.scope,'original_first_frame_scaled')
+ dispose(vm)
+})
+test('saved sharing review displays historical rights and distinguishes unknown recipient identity', async () => {
+ const vm = mount(async () => ({data:{items:[],nextCursor:null}}))
+ await tick()
+ vm.$refs.plan.record = {planId:'synthetic',revision:1,creator:'reviewer',createdAt:1700000000,hash:hashA,members:[{appRef:9,action:'keep',sharing:{pages:[{query:{depth:1,type:0,offset:0},page:{anchor:{path:'/alice/files/shared'},observedAt:1700000000,items:[{id:1,recipient:'bob',recipientPath:'/bob/files/<shared>/photo.png',permissions:1,effectivePermissions:1,deletable:false,pathStatus:'observed',expiration:null,status:0},{id:2,recipient:'unknown',recipientPath:null,permissions:31,effectivePermissions:null,deletable:null,pathStatus:'unverifiable',expiration:null,status:0}]}}]}}]}
+ await tick()
+ const saved = vm.$el.querySelector('[data-saved-sharing]')
+ assert.match(saved.textContent,/\/bob\/files\/<shared>\/photo.png/)
+ assert.equal(saved.querySelector('shared'),null)
+ assert.match(saved.textContent,/Not allowed at observation time/)
+ assert.match(saved.textContent,/Recipient identity verified at observation time/)
+ assert.match(saved.textContent,/Recipient path could not be verified/)
+ assert.match(saved.textContent,/Not determined/)
+ assert.match(saved.textContent,/Recorded share status/)
+ assert.match(vm.$el.querySelector('[data-saved-summary]').textContent,/unobserved sharing consequences remain unknown/)
  dispose(vm)
 })

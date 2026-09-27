@@ -642,6 +642,20 @@
     "Check limit reached" : "Prüflimit erreicht",
     "File revision changed" : "Dateirevision geändert",
     "Check failed" : "Prüfung fehlgeschlagen",
+    "Selected sharing pages in this proposal" : "Ausgewählte Freigabeseiten in diesem Vorschlag",
+    "Page offset" : "Seitenversatz",
+    "Remove sharing page from proposal" : "Freigabeseite aus dem Vorschlag entfernen",
+    "Include this sharing page in proposal" : "Diese Freigabeseite in den Vorschlag übernehmen",
+    "Saved sharing observations" : "Gespeicherte Freigabebeobachtungen",
+    "Selected pages only; unobserved sharing consequences remain unknown." : "Nur ausgewählte Seiten; nicht untersuchte Freigabefolgen bleiben unbekannt.",
+    "No sharing pages were included in this revision." : "In dieser Revision wurden keine Freigabeseiten aufgenommen.",
+    "Server rechecked at" : "Vom Server erneut geprüft am",
+    "No entries on this saved page; other shares are not excluded." : "Keine Einträge auf dieser gespeicherten Seite; weitere Freigaben sind nicht ausgeschlossen.",
+    "Sharing observation belongs to another file revision. Refresh the selection before saving." : "Die Freigabebeobachtung gehört zu einer anderen Dateirevision. Auswahl vor dem Speichern erneuern.",
+    "A proposal can include at most 20 sharing pages." : "Ein Vorschlag kann höchstens 20 Freigabeseiten enthalten.",
+    "Only this page is displayed. Pages are not an atomic snapshot. Inclusion in a proposal requires explicit selection within that proposal." : "Angezeigt wird nur diese Seite. Die Seiten bilden keinen atomaren Schnappschuss. Die Übernahme erfordert eine ausdrückliche Auswahl innerhalb des Vorschlags.",
+    "Sharing consequences have not been fully determined. Multiple references may point to the same physical file; counts do not represent recoverable space." : "Freigabefolgen sind nicht vollständig ermittelt. Mehrere Fundstellen können dieselbe physische Datei bezeichnen; die Anzahl entspricht keinem freisetzbaren Speicherplatz.",
+    "Conflict: file metadata, selected sharing pages or the predecessor revision changed. The draft remains unchanged. Review the conflict before trying again." : "Konflikt: Dateimetadaten, ausgewählte Freigabeseiten oder die Vorgängerrevision haben sich geändert. Der Entwurf bleibt unverändert. Konflikt vor einem erneuten Versuch prüfen.",
     "The viewer is not available" : "Der Betrachter ist nicht verfügbar"
 },"pluralForm" :"nplurals=2; plural=(n != 1);"
 }

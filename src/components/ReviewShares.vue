@@ -3,13 +3,13 @@
 		<summary>{{ t('duplicatefinder', 'Sharing details') }}</summary>
 		<p>{{ t('duplicatefinder', 'Incomplete sharing observation. Load one share type and ancestor page explicitly. Other providers and group members are not covered. This is not an execution authorization.') }}</p>
 		<label>{{ t('duplicatefinder', 'Share type') }}
-			<select v-model.number="type" :disabled="busy" @change="reset">
+			<select v-model.number="type" :disabled="busy || disabled" @change="reset">
 				<option :value="0">{{ t('duplicatefinder', 'User shares') }}</option>
 				<option :value="1">{{ t('duplicatefinder', 'Group shares') }}</option>
 				<option :value="3">{{ t('duplicatefinder', 'Public links') }}</option>
 			</select>
 		</label>
-		<button type="button" :disabled="busy" @click="load(0, 0)">{{ t('duplicatefinder', 'Load direct shares') }}</button>
+		<button type="button" :disabled="busy || disabled" @click="load(0, 0)">{{ t('duplicatefinder', 'Load direct shares') }}</button>
 		<p v-if="busy" role="status">{{ t('duplicatefinder', 'Loading sharing details') }}</p>
 		<p v-if="error" role="alert">{{ error }}</p>
 		<section v-if="page" :aria-label="t('duplicatefinder', 'Observed sharing page')">
@@ -27,9 +27,10 @@
 					<p>{{ t('duplicatefinder', 'Recorded expiration') }}: {{ item.expiration || '—' }} · {{ t('duplicatefinder', 'Recorded share status') }}: {{ item.status }}</p>
 				</li>
 			</ul>
-			<button v-if="page.nextOffset !== null" type="button" :disabled="busy" @click="load(page.anchor.depth, page.nextOffset)">{{ t('duplicatefinder', 'Next share page') }}</button>
-			<button v-if="page.nextDepth !== null" type="button" :disabled="busy" @click="load(page.nextDepth, 0)">{{ t('duplicatefinder', 'Inspect parent shares') }}</button>
-			<p>{{ t('duplicatefinder', 'Only this page is displayed. Pages are not an atomic snapshot and are not yet included in decision proposals.') }}</p>
+			<button v-if="page.nextOffset !== null" type="button" :disabled="busy || disabled" @click="load(page.anchor.depth, page.nextOffset)">{{ t('duplicatefinder', 'Next share page') }}</button>
+			<button v-if="page.nextDepth !== null" type="button" :disabled="busy || disabled" @click="load(page.nextDepth, 0)">{{ t('duplicatefinder', 'Inspect parent shares') }}</button>
+			<button v-if="selectable" type="button" :disabled="busy || disabled" @click="selectPage">{{ t('duplicatefinder', 'Include this sharing page in proposal') }}</button>
+			<p>{{ t('duplicatefinder', 'Only this page is displayed. Pages are not an atomic snapshot. Inclusion in a proposal requires explicit selection within that proposal.') }}</p>
 		</section>
 	</details>
 </template>
@@ -38,17 +39,21 @@ import axios from '@nextcloud/axios'
 import { generateUrl } from '@nextcloud/router'
 export default {
 	name: 'ReviewShares',
-	props: { appRef: { type: Number, required: true } },
-	data() { return { type: 0, page: null, busy: false, error: '', requestId: 0 } },
+	props: { appRef: { type: Number, required: true }, selectable: { type: Boolean, default: false }, disabled: { type: Boolean, default: false } },
+	data() { return { type: 0, page: null, pageOffset: 0, busy: false, error: '', requestId: 0 } },
 	watch: { appRef() { this.reset() } },
 	beforeDestroy() { this.requestId++ },
 	methods: {
+		selectPage() {
+			if (!this.selectable || this.disabled || this.busy || !this.page) return
+			this.$emit('selected', { appRef: this.appRef, query: { depth: this.page.anchor.depth, type: this.page.type, offset: this.pageOffset }, expected: JSON.parse(JSON.stringify(this.page)) })
+		},
 		reset() { this.requestId++; this.page = null; this.busy = false; this.error = '' },
 		timestamp(seconds) { return typeof seconds === 'number' && Number.isFinite(seconds) ? new Date(seconds * 1000).toLocaleString() : '—' },
 		permission(value) { return this.t('duplicatefinder', value === true ? 'Allowed at observation time' : value === false ? 'Not allowed at observation time' : 'Not determined') },
 		pathStatus(value) { return this.t('duplicatefinder', ({ observed: 'Recipient identity verified at observation time', unverifiable: 'Recipient path could not be verified', group_members_not_expanded: 'Group membership and individual paths have not been expanded' })[value] || 'Recipient path not determined') },
 		async load(depth, offset) {
-			if (this.busy) return
+			if (this.busy || this.disabled) return
 			const generation = ++this.requestId
 			const ref = this.appRef
 			const type = this.type
@@ -57,7 +62,7 @@ export default {
 				const { data } = await axios.get(generateUrl('/apps/duplicatefinder/api/review/members/' + ref + '/shares'), { params: { depth, type, offset, limit: 25 } })
 				if (generation !== this.requestId) return
 				if (data.appRef !== ref || data.type !== type || data.anchor?.depth !== depth || !Array.isArray(data.items) || data.items.length > 25) throw new Error('Invalid share page')
-				this.page = data
+				this.page = data; this.pageOffset = offset
 			} catch (error) {
 				if (generation === this.requestId) this.error = this.t('duplicatefinder', 'Sharing details could not be loaded. Any displayed page is the previous observation. Retry explicitly.')
 			} finally { if (generation === this.requestId) this.busy = false }
