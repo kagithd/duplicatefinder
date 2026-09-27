@@ -47,7 +47,7 @@ class ReviewService
     private function observe(array $row): array
     {
         $item = [
-            'id' => (int)$row['id'], 'indexOwner' => $row['owner'], 'indexPath' => $row['path'],
+            'id' => (int)$row['id'], 'candidateHash' => $row['file_hash'] ?? null, 'indexOwner' => $row['owner'], 'indexPath' => $row['path'],
             'owner' => null, 'path' => null, 'nodeId' => null, 'storageId' => null,
             'etag' => null, 'size' => null, 'mtime' => null,
             'availability' => 'unavailable', 'integrity' => 'not_checked',

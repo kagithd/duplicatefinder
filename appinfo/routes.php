@@ -12,6 +12,12 @@ return [
 
        ['name' => 'evidence#history', 'url' => '/api/review/members/{appRef}/evidence', 'verb' => 'GET'],
 
+       ['name' => 'plan#create', 'url' => '/api/review/plans', 'verb' => 'POST'],
+       ['name' => 'plan#listing', 'url' => '/api/review/plans', 'verb' => 'GET'],
+       ['name' => 'plan#append', 'url' => '/api/review/plans/{planId}/revisions', 'verb' => 'POST'],
+       ['name' => 'plan#revision', 'url' => '/api/review/plans/{planId}/revisions/{revision}', 'verb' => 'GET'],
+       ['name' => 'plan#export', 'url' => '/api/review/plans/{planId}/revisions/{revision}/export', 'verb' => 'GET'],
+
        // Filter routes
        ['name' => 'filter#index', 'url' => '/api/filters', 'verb' => 'GET'],
        ['name' => 'filter#create', 'url' => '/api/filters', 'verb' => 'POST'],

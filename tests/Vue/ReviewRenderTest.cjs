@@ -16,13 +16,22 @@ const tick = async () => { await Promise.resolve(); await Vue.nextTick(); await 
 const hashA = 'a'.repeat(64)
 const hashB = 'b'.repeat(64)
 
-function mount(get) {
+function mount(get, post = async () => { throw new Error("unexpected mutation") }) {
     const file = path.join(__dirname, '../../src/Review.vue')
     const sfc = compiler.parseComponent(fs.readFileSync(file, 'utf8'))
     const code = babel.transformSync(sfc.script.content, { babelrc: false, configFile: false, plugins: ['@babel/plugin-transform-modules-commonjs'] }).code
     const module = { exports: {} }
     const fakeRequire = name => {
-        if (name === '@nextcloud/axios') return { get }
+        if (name === './components/ReviewPlan.vue') {
+            const child = compiler.parseComponent(fs.readFileSync(path.join(__dirname, '../../src/components/ReviewPlan.vue'), 'utf8'))
+            const childCode = babel.transformSync(child.script.content, { babelrc: false, configFile: false, plugins: ['@babel/plugin-transform-modules-commonjs'] }).code
+            const childMod = { exports: {} }
+            new Function('require', 'module', 'exports', childCode)(fakeRequire, childMod, childMod.exports)
+            Object.assign(childMod.exports.default, compiler.compileToFunctions(child.template.content))
+            childMod.exports.default.methods.t = (_, text) => text
+            return childMod.exports
+        }
+        if (name === '@nextcloud/axios') return { get, post }
         if (name === '@nextcloud/router') return { generateUrl: value => value }
         return require(name)
     }
@@ -236,4 +245,30 @@ test('displays damaged, unsupported and stale findings without changing their me
         assert.match(vm.$el.querySelector('[data-evidence]').textContent, expected)
         dispose(vm)
     }
+})
+
+test('explicit plan selections survive member pages and group changes without expanding the selection', async () => {
+    const submissions = []
+    const vm = mount(async (url, options) => {
+        if (url.endsWith('/members')) return { data: { items: options.params.cursor ? [{ id: 2, indexOwner: 'bob', indexPath: '/bob/files/b', etag: 'second' }] : [{ id: 1, indexOwner: 'alice', indexPath: '/alice/files/a', etag: 'first' }], nextCursor: options.params.cursor ? null : 1 } }
+        return { data: { items: [{ hash: hashA, referenceCount: 3 }, { hash: hashB, referenceCount: 2 }], nextCursor: null } }
+    }, async (url, body) => { submissions.push(body.payload); throw new Error('network interrupted') })
+    await tick()
+    vm.$el.querySelector('[data-group]').click(); await tick()
+    vm.$el.querySelector('[data-plan-keep]').click(); await tick()
+    vm.$el.querySelector('[data-next-members]').click(); await tick()
+    vm.$el.querySelector('[data-plan-remove]').click(); await tick()
+    const plan = vm.$refs.plan
+    assert.deepEqual(plan.decisions.map(d => d.appRef), [1, 2])
+    vm.$el.querySelectorAll('[data-group]')[1].click(); await tick()
+    vm.$el.querySelector('[data-plan-keep]').click(); await tick()
+    assert.equal(plan.draftHash, hashA)
+    assert.equal(plan.decisions.length, 2)
+    assert.match(plan.error, /another group/)
+    await plan.save(); await plan.save()
+    assert.equal(submissions[0].idempotencyKey, submissions[1].idempotencyKey)
+    assert.equal(submissions[0].members[0].expected.etag, 'first')
+    plan.note = 'new note'; await plan.save()
+    assert.notEqual(submissions[1].idempotencyKey, submissions[2].idempotencyKey)
+    dispose(vm)
 })

@@ -18,7 +18,7 @@ class ReviewMapper
     public function reference(int $appRef): ?array
     {
         $qb = $this->db->getQueryBuilder();
-        $qb->select('id', 'owner', 'path')->from('duplicatefinder_finfo')
+        $qb->select('id', 'owner', 'path', 'file_hash', 'ignored')->from('duplicatefinder_finfo')
             ->where($qb->expr()->eq('id', $qb->createNamedParameter($appRef, IQueryBuilder::PARAM_INT)))
             ->setMaxResults(1);
         $result = $qb->executeQuery();
@@ -28,6 +28,11 @@ class ReviewMapper
         } finally {
             $result->closeCursor();
         }
+    }
+    public function candidateHash(int $appRef): ?string
+    {
+        $row = $this->reference($appRef);
+        return $row !== null && !(bool)$row['ignored'] ? $row['file_hash'] : null;
     }
     public function groups(string $cursor, int $limit): array
     {
@@ -63,7 +68,7 @@ class ReviewMapper
     public function members(string $hash, int $cursor, int $limit): array
     {
         $qb = $this->db->getQueryBuilder();
-        $qb->select('id', 'owner', 'path')
+        $qb->select('id', 'owner', 'path', 'file_hash', 'ignored')
             ->from('duplicatefinder_finfo')
             ->where($qb->expr()->eq('file_hash', $qb->createNamedParameter($hash)))
             ->andWhere($qb->expr()->eq('ignored', $qb->createNamedParameter(false, IQueryBuilder::PARAM_BOOL)))

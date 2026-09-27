@@ -35,4 +35,16 @@ class ReviewAnnotationsTest extends TestCase
             $this->assertFalse($reflector->hasAnnotation($exemption), $exemption);
         }
     }
-}
+    public function testEveryPlanRouteRetainsRealMiddlewareProtection(): void
+    {
+        if (!class_exists(ControllerMethodReflector::class)) {
+            $this->markTestSkipped('Nextcloud core is required for annotation integration');
+        }
+        foreach (['create', 'append', 'listing', 'revision', 'export'] as $method) {
+            $reflector = new ControllerMethodReflector(new NullLogger());
+            $reflector->reflect(\OCA\DuplicateFinder\Controller\PlanController::class, $method);
+            foreach (['NoCSRFRequired', 'NoAdminRequired', 'PublicPage'] as $exemption) {
+                $this->assertFalse($reflector->hasAnnotation($exemption), $method . ': ' . $exemption);
+            }
+        }
+    }}

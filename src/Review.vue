@@ -109,6 +109,17 @@
 									{{ t('duplicatefinder', 'No saved finding. Integrity remains unchecked.') }}
 								</p>
 							</div>
+							<div class="review__decisions">
+								<button type="button" data-plan-keep @click="$refs.plan.choose(member, 'keep', evidence[member.id])">
+									{{ t('duplicatefinder', 'Keep') }}
+								</button>
+								<button type="button" data-plan-remove @click="$refs.plan.choose(member, 'remove', evidence[member.id])">
+									{{ t('duplicatefinder', 'Propose removal') }}
+								</button>
+								<button type="button" @click="$refs.plan.choose(member, 'exclude', evidence[member.id])">
+									{{ t('duplicatefinder', 'Exclude from proposal') }}
+								</button>
+							</div>
 							<details>
 								<summary>{{ t('duplicatefinder', 'File identity details') }}</summary>
 								<dl>
@@ -137,15 +148,18 @@
 				</template>
 			</section>
 		</div>
+		<ReviewPlan ref="plan" :hash="selectedHash" />
 	</main>
 </template>
 
 <script>
+import ReviewPlan from './components/ReviewPlan.vue'
 import axios from '@nextcloud/axios'
 import { generateUrl } from '@nextcloud/router'
 
 export default {
 	name: 'Review',
+	components: { ReviewPlan },
 	data() {
 		return {
 			groups: [],

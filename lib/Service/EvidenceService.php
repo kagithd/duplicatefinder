@@ -87,6 +87,14 @@ class EvidenceService
         return ['items' => $items, 'nextCursor' => $more ? (int)end($rows)['id'] : null];
     }
 
+    public function getEvidence(int $id, int $appRef): ?array
+    {
+        if ($id < 1 || $id === PHP_INT_MAX || $appRef < 1) return null;
+        $page = $this->getHistory($appRef, $id + 1, 1);
+        $item = $page['items'][0] ?? null;
+        return $item !== null && $item['id'] === $id ? $item : null;
+    }
+
     private function sameFields(array $expected, array $actual): bool
     {
         if (count($expected) !== count($actual)) return false;
