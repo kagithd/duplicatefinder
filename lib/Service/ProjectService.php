@@ -222,8 +222,6 @@ class ProjectService
             'id' => $id,
         ]);
 
-        // Clear existing duplicates for this project
-        $this->mapper->removeDuplicates($id);
 
         // Scan each folder
         foreach ($folders as $folderPath) {
@@ -241,6 +239,7 @@ class ProjectService
                     'error' => $e->getMessage(),
                     'exception' => $e,
                 ]);
+                throw $e;
             }
         }
 
@@ -369,6 +368,9 @@ class ProjectService
                 ]);
             }
         }
+
+        // Keep the previous results until scanning and result discovery succeed.
+        $this->mapper->removeDuplicates($projectId);
 
         // Add the duplicates to the project
         foreach ($duplicateIds as $duplicateId) {
