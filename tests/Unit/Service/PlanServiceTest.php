@@ -21,6 +21,50 @@ class PlanServiceTest extends TestCase  {
         $member=['appRef'=>1,'action'=>'keep','expected'=>$r,'evidenceIds'=>[],'manualAssessment'=>['status'=>'not_assessed','note'=>''],'reason'=>''];
         return [$service,$mapper,['hash'=>str_repeat('a',64),'members'=>[$member],'indexActions'=>[],'note'=>'','idempotencyKey'=>'request-1']];
     }
+
+    private function withRemoval(array $p): array {
+        $second=$p['members'][0];$second['appRef']=2;$second['action']='remove';
+        $second['expected']['id']=2;$second['expected']['nodeId']=5;
+        $p['members'][]=$second;return $p;
+    }
+    public function testRemovalWithoutExplicitKeepLinkCannotPersist(): void {
+        [$s,$m,$p]=$this->fixture();$p=$this->withRemoval($p);
+        $m->expects($this->never())->method('save');
+        $this->expectException(\InvalidArgumentException::class);
+        $s->create($p,'admin');
+    }
+    public function testExplicitKeepLinkIsStoredOnRemoval(): void {
+        [$s,$m,$p]=$this->fixture();$p=$this->withRemoval($p);
+        $p['members'][1]['keepRef']=1;
+        $m->expects($this->once())->method('save')->willReturnCallback(function($id,$prev,$key,$digest,$record) {
+            $this->assertNull($record['members'][0]['keepRef']);
+            $this->assertSame(1,$record['members'][1]['keepRef']);
+            $this->assertFalse($record['executable']);return $record;
+        });
+        $s->create($p,'admin');
+    }
+    public function testInvalidKeepLinkNeverPersists(): void {
+        foreach ([null,0,'1',2,999] as $target) {
+            [$s,$m,$p]=$this->fixture();$p=$this->withRemoval($p);
+            $p['members'][1]['keepRef']=$target;$m->expects($this->never())->method('save');
+            try { $s->create($p,'admin');$this->fail('Invalid target accepted'); }
+            catch (\InvalidArgumentException $e) { $this->assertTrue(true); }
+        }
+    }
+    public function testKeepLinkCannotTargetAnExcludedReference(): void {
+        [$s,$m,$p]=$this->fixture();$p=$this->withRemoval($p);
+        $third=$p['members'][0];$third['appRef']=3;$third['action']='exclude';
+        $third['expected']['id']=3;$third['expected']['nodeId']=6;
+        $p['members'][]=$third;$p['members'][1]['keepRef']=3;
+        $m->expects($this->never())->method('save');
+        $this->expectException(\InvalidArgumentException::class);$s->create($p,'admin');
+    }
+    public function testKeptReferenceCannotHaveAReplacementLink(): void {
+        [$s,$m,$p]=$this->fixture();$p['members'][0]['keepRef']=1;
+        $m->expects($this->never())->method('save');
+        $this->expectException(\InvalidArgumentException::class);$s->create($p,'admin');
+    }
+
     public function testPersistsServerValidatedSharingRatherThanBrowserFields(): void {
         $sharing=$this->createMock(PlanShareService::class);
         [$s,$m,$p]=$this->fixture([],false,null,null,null,$sharing);
@@ -142,7 +186,7 @@ class PlanServiceTest extends TestCase  {
         else $mapper->expects($this->once())->method('save')->willReturnCallback(static fn($id,$prev,$key,$digest,$record) => $record);
         $service = new PlanService($mapper,$review,$index,$this->createMock(EvidenceService::class),
             $this->createMock(\OCA\DuplicateFinder\Service\PreviewArtifactService::class), $this->createMock(PlanShareService::class), $this->createMock(\OCA\DuplicateFinder\Service\DetailArtifactService::class), $this->createMock(\OCA\DuplicateFinder\Service\PlanGroupService::class));
-        $selection = static fn($ref,$action,$observed) => ['appRef'=>$ref,'action'=>$action,'expected'=>$observed,
+        $selection = static fn($ref,$action,$observed) => ['appRef'=>$ref,'action'=>$action,'keepRef'=>$action==='remove'?3-$ref:null,'expected'=>$observed,
             'evidenceIds'=>[],'manualAssessment'=>['status'=>'not_assessed','note'=>''],'reason'=>''];
         $payload = ['hash'=>str_repeat('a',64),'members'=>[$selection(1,$firstAction,$owner),$selection(2,$secondAction,$recipient)],
             'indexActions'=>[],'note'=>'','idempotencyKey'=>'shared-alias-1'];

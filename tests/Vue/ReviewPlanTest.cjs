@@ -16,9 +16,10 @@ function component(axios) {
 test('captures explicit references across pages and preserves metadata and retry identity', async()=>{
  const calls=[]
  const vm=component({post:async(u,p)=>{calls.push(JSON.parse(JSON.stringify(p.payload)));throw {response:{status:409}}}})
- const m={id:1,indexOwner:'alice',indexPath:'/alice/files/a',etag:'old'}
+ const m={id:1,nodeId:11,indexOwner:'alice',indexPath:'/alice/files/a',etag:'old'}
  vm.choose(m,'keep',{entry:{id:7}});m.etag='new'
- vm.choose({id:2,indexOwner:'bob',indexPath:'/bob/files/b'},'remove',null)
+ vm.choose({id:2,nodeId:12,indexOwner:'bob',indexPath:'/bob/files/b'},'remove',null)
+ vm.setKeepRef(vm.decisions[1],'1')
  await vm.save();await vm.save()
  assert.equal(calls[0].members[0].expected.etag,'old')
  assert.deepEqual(calls[0].members[0].evidenceIds,[7])
@@ -186,4 +187,29 @@ test('membership selections are revision-bound, copied, capped globally and rest
  vm.record={planId:'p',revision:1,hash:vm.hash,note:'',members:[{...decision,observed:decision.expected,groupMembership:{pages:[{query:selection.query,page:selection.expected}]}}]}
  vm.editRevision();assert.equal(vm.decisions[0].groupPages[0].expected.members[0].uid,'b')
  vm.removeGroup(vm.decisions[0],vm.decisions[0].groupPages[0]);assert.equal(vm.groupCount(),0)
+})
+
+test('removal needs explicit keeper and changing or removing that keeper blocks saving',async()=>{
+ const calls=[];const vm=component({post:async(u,p)=>{calls.push(p);return {data:{revision:1}}}})
+ vm.choose({id:1,nodeId:11,indexPath:'/a'},'keep',null)
+ vm.choose({id:2,nodeId:12,indexPath:'/b'},'remove',null)
+ const removal=vm.decisions[1];await vm.save();assert.equal(calls.length,0)
+ vm.setKeepRef(removal,'1');await vm.save();assert.equal(calls[0].payload.members[1].keepRef,1)
+ vm.changeAction(vm.decisions[0],'exclude');assert.equal(removal.keepRef,null)
+ await vm.save();assert.equal(calls.length,1)
+ vm.changeAction(vm.decisions[0],'keep');assert.equal(removal.keepRef,null)
+ vm.setKeepRef(removal,'1');vm.removeDecision(vm.decisions[0]);assert.equal(removal.keepRef,null)
+ await vm.save();assert.equal(calls.length,1)
+})
+test('keeper options exclude aliases and historical absent links remain unselected',()=>{
+ const vm=component({})
+ vm.choose({id:1,nodeId:11},'keep',null);vm.choose({id:2,nodeId:11},'remove',null)
+ assert.deepEqual(vm.keepOptions(vm.decisions[1]),[])
+ vm.setKeepRef(vm.decisions[1],'1');assert.equal(vm.decisions[1].keepRef,null)
+ vm.record={planId:'old',revision:1,hash:vm.hash,note:'',members:[
+  {appRef:1,action:'keep',observed:{id:1,nodeId:11},manualAssessment:{status:'not_assessed',note:''}},
+  {appRef:2,action:'remove',observed:{id:2,nodeId:12},manualAssessment:{status:'not_assessed',note:''}}]}
+ vm.editRevision();assert.equal(vm.decisions[1].keepRef,null)
+ vm.record.members[1].keepRef=1;vm.editRevision();assert.equal(vm.decisions[1].keepRef,1)
+ assert.match(vm.keptLabel(vm.record.members[1]),/1/)
 })

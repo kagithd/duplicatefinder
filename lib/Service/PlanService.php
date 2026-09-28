@@ -74,7 +74,7 @@ class PlanService {
         $sharingPageCount=0;
         $groupPageCount=0;
         foreach($p['members'] as $m) {
-            if(!is_array($m)||array_diff(array_keys($m),['appRef','action','expected','evidenceIds','manualAssessment','reason','sharePages','groupPages'])) {
+            if(!is_array($m)||array_diff(array_keys($m),['appRef','action','expected','evidenceIds','manualAssessment','reason','sharePages','groupPages','keepRef'])) {
                 throw new \InvalidArgumentException('Invalid member fields');
             }
             $ref=$m['appRef']??null;
@@ -83,6 +83,11 @@ class PlanService {
                 throw new \InvalidArgumentException('Invalid or repeated reference/action');
             }
             $seen[$ref]=true;
+            $keepRef=$m['keepRef']??null;
+            if ($action==='remove' ? (!is_int($keepRef) || $keepRef<1 || $keepRef===$ref) : $keepRef!==null) {
+                throw new \InvalidArgumentException('Select a kept reference for each removal');
+            }
+
             $this->note($m['reason']??null,2048);
             $manual=$m['manualAssessment']??null;
             if(!is_array($manual)||array_diff(array_keys($manual),['status','note','source'])||!in_array($manual['status']??null,['not_assessed','content_visible','problem'],true)) {
@@ -131,7 +136,7 @@ class PlanService {
                 throw new \InvalidArgumentException('Plan is limited to 20 selected membership pages');
             }
             $groupMembership=$this->groups->capture($ref,$groupPages,$current);
-            $member = ['appRef' => $ref, 'action' => $action, 'observed' => $current,
+            $member = ['appRef' => $ref, 'action' => $action, 'keepRef' => $keepRef, 'observed' => $current,
                 'candidateHash' => $p['hash'], 'evidence' => [],
                 'manualAssessment' => $manual, 'reason' => $m['reason'], 'sharing' => $sharing, 'groupMembership' => $groupMembership];
             // Account for the member and array comma before loading any findings.
@@ -154,6 +159,18 @@ class PlanService {
             }
             $member['evidence'] = $findings;
             $members[] = $member;
+        }
+        // Resolve only references explicitly kept in this same immutable proposal.
+        // Indexed hash equality is still a candidate relationship, not fresh byte equality.
+        $byRef=[];
+        foreach ($members as $member) $byRef[$member['appRef']]=$member;
+        foreach ($members as $member) {
+            if ($member['action']!=='remove') continue;
+            $target=$byRef[$member['keepRef']]??null;
+            if ($target===null || $target['action']!=='keep' ||
+                $target['observed']['nodeId']===$member['observed']['nodeId']) {
+                throw new \InvalidArgumentException('Replacement must be a distinct kept file in this proposal');
+            }
         }
         // Re-read after evidence resolution; this remains metadata-only, not a lock.
         foreach ($members as $member) {

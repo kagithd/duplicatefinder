@@ -20,6 +20,16 @@
 						<option value="exclude">{{ t('duplicatefinder', 'Exclude from proposal') }}</option>
 					</select>
 				</label>
+                <div v-if="decision.action === 'remove'">
+                    <label>{{ t('duplicatefinder', 'File selected to keep for this removal') }}
+                        <select data-keep-ref :value="decision.keepRef === null ? '' : decision.keepRef" :disabled="busy" @change="setKeepRef(decision, $event.target.value)">
+                            <option value="">{{ t('duplicatefinder', 'Choose a kept file explicitly') }}</option>
+                            <option v-for="candidate in keepOptions(decision)" :key="candidate.appRef" :value="candidate.appRef">{{ candidate.appRef }} · {{ candidate.expected.indexOwner }} · {{ candidate.expected.indexPath }}</option>
+                        </select>
+                    </label>
+                    <p v-if="!validKeepRef(decision)" role="status">{{ t('duplicatefinder', 'A distinct kept file must be selected before saving. No replacement is chosen automatically.') }}</p>
+                    <p>{{ t('duplicatefinder', 'This relationship records your choice; current byte equality, integrity and access preservation are not established by it.') }}</p>
+                </div>
 				<label>{{ t('duplicatefinder', 'Reason') }}<input v-model="decision.reason"
 					:disabled="busy"
 					maxlength="4000"
@@ -106,6 +116,7 @@
 				<ol>
 					<li v-for="member in record.members" :key="member.appRef" data-saved-member>
 						<h4>{{ actionLabel(member.action) }} · {{ t('duplicatefinder', 'Reference') }} {{ member.appRef }}</h4>
+                        <p v-if="member.action === 'remove'">{{ t('duplicatefinder', 'Selected kept file') }}: {{ keptLabel(member) }}</p>
 						<dl>
 							<dt>{{ t('duplicatefinder', 'Observed owner') }}</dt><dd>{{ observation(member).owner || '—' }}</dd>
 							<dt>{{ t('duplicatefinder', 'Indexed user') }}</dt><dd>{{ observation(member).indexOwner || '—' }}</dd>
@@ -173,6 +184,28 @@ export default {
 	mounted() { window.addEventListener('beforeunload', this.guardUnload) },
 	beforeDestroy() { window.removeEventListener('beforeunload', this.guardUnload) },
     methods: {
+        keepOptions(decision) {
+            return this.decisions.filter(item => item.action === 'keep' && item.appRef !== decision.appRef
+                && Number.isInteger(item.expected.nodeId) && Number.isInteger(decision.expected.nodeId)
+                && item.expected.nodeId !== decision.expected.nodeId)
+        },
+        validKeepRef(decision) { return this.keepOptions(decision).some(item => item.appRef === decision.keepRef) },
+        setKeepRef(decision, value) {
+            if (this.busy || !this.decisions.includes(decision) || decision.action !== 'remove') return
+            const ref = value === '' ? null : Number(value)
+            this.$set(decision, 'keepRef', this.keepOptions(decision).some(item => item.appRef === ref) ? ref : null)
+            this.saved = false
+        },
+        clearKeepLinks(ref) {
+            for (const item of this.decisions) if (item.keepRef === ref) this.$set(item, 'keepRef', null)
+        },
+        keptLabel(member) {
+            const target = (this.record?.members || []).find(item => item.appRef === member.keepRef && item.action === 'keep')
+            if (!target) return this.t('duplicatefinder', 'No explicit kept file recorded in this revision')
+            const observed = this.observation(target)
+            return target.appRef + ' · ' + (observed.indexOwner || observed.owner || '—') + ' · ' + (observed.indexPath || observed.path || '—')
+        },
+
         groupKey(query) { return [query.depth, query.shareOffset, query.shareId, query.offset].join(':') },
         groupCount() { return this.decisions.reduce((count, member) => count + (member.groupPages || []).length, 0) },
         storedGroups(member) { return member.groupMembership?.pages || [] },
@@ -266,15 +299,30 @@ export default {
 			if (existing) { this.changeAction(existing, action); return }
 			if (this.decisions.length >= 100) { this.error = this.t('duplicatefinder', 'The proposal is limited to 100 explicitly selected references.'); return }
 			this.draftHash = this.hash
-			this.decisions.push({ appRef: member.id, action, expected: copy(member), evidenceIds: evidence?.entry ? [evidence.entry.id] : [], manualAssessment: { status: 'not_assessed', note: '' }, reason: '', sharePages: [], groupPages: [] })
+			this.decisions.push({ appRef: member.id, action, keepRef: null, expected: copy(member), evidenceIds: evidence?.entry ? [evidence.entry.id] : [], manualAssessment: { status: 'not_assessed', note: '' }, reason: '', sharePages: [], groupPages: [] })
 			this.saved = false
 			this.error = ''
 		},
-		changeAction(decision, action) { decision.action = action; this.saved = false },
-		removeDecision(decision) { this.decisions.splice(this.decisions.indexOf(decision), 1); this.saved = false },
+		changeAction(decision, action) {
+            if (this.busy || !this.decisions.includes(decision)) return
+            if (decision.action !== action) {
+                this.clearKeepLinks(decision.appRef)
+                this.$set(decision, 'keepRef', null)
+                decision.action = action; this.saved = false
+            }
+        },
+		removeDecision(decision) {
+            if (this.busy || !this.decisions.includes(decision)) return
+            this.clearKeepLinks(decision.appRef)
+            this.decisions.splice(this.decisions.indexOf(decision), 1); this.saved = false
+        },
 		discard() { this.decisions = []; this.draftHash = ''; this.note = ''; this.predecessor = null; this.planId = null; this.signature = ''; this.retryKey = ''; this.saved = false; this.error = '' },
 		async save() {
 			if (this.busy || !this.decisions.length) return
+            if (this.decisions.some(item => item.action === 'remove' && !this.validKeepRef(item))) {
+                this.error = this.t('duplicatefinder', 'Select a distinct kept file for every proposed removal before saving. Your draft is retained.')
+                return
+            }
 			const bytes = value => new TextEncoder().encode(value).length
 			if (bytes(this.note) > 4096 || this.decisions.some(member => bytes(member.reason) > 2048 || bytes(member.manualAssessment.note) > 2048)) {
 				this.error = this.t('duplicatefinder', 'Text exceeds the UTF-8 byte limit: reason 2048, notes 4096. Shorten it before saving. Your draft is retained.')
@@ -303,7 +351,7 @@ export default {
 			try { const { data } = await axios.get(generateUrl('/apps/duplicatefinder/api/review/plans/' + encodeURIComponent(planId) + '/revisions/' + encodeURIComponent(revision))); this.record = data; this.revisionInput = data.revision } catch (error) { this.error = this.t('duplicatefinder', 'Saved revision could not be loaded.') } finally { this.busy = false }
 		},
 		editRevision() {
-			this.decisions = this.record.members.map(member => ({ appRef: member.appRef, action: member.action, expected: copy(member.observed || member.expected), evidenceIds: copy(member.evidenceIds || (member.evidence || []).map(entry => entry.id)), manualAssessment: copy(member.manualAssessment), reason: member.reason || '', groupPages: (member.groupMembership?.pages || []).map(entry => ({ query: copy(entry.query), expected: copy(entry.page) })), sharePages: (member.sharing?.pages || []).map(entry => ({ query: copy(entry.query), expected: copy(entry.page) })) })); this.draftHash = this.record.hash; this.note = this.record.note; this.planId = this.record.planId; this.predecessor = this.record.revision; this.signature = ''; this.saved = false
+			this.decisions = this.record.members.map(member => ({ appRef: member.appRef, action: member.action, keepRef: member.keepRef ?? null, expected: copy(member.observed || member.expected), evidenceIds: copy(member.evidenceIds || (member.evidence || []).map(entry => entry.id)), manualAssessment: copy(member.manualAssessment), reason: member.reason || '', groupPages: (member.groupMembership?.pages || []).map(entry => ({ query: copy(entry.query), expected: copy(entry.page) })), sharePages: (member.sharing?.pages || []).map(entry => ({ query: copy(entry.query), expected: copy(entry.page) })) })); this.draftHash = this.record.hash; this.note = this.record.note; this.planId = this.record.planId; this.predecessor = this.record.revision; this.signature = ''; this.saved = false
 		},
 		async download() {
 			this.busy = true; this.error = ''

@@ -250,7 +250,7 @@ test('displays damaged, unsupported and stale findings without changing their me
 test('explicit plan selections survive member pages and group changes without expanding the selection', async () => {
     const submissions = []
     const vm = mount(async (url, options) => {
-        if (url.endsWith('/members')) return { data: { items: options.params.cursor ? [{ id: 2, indexOwner: 'bob', indexPath: '/bob/files/b', etag: 'second' }] : [{ id: 1, indexOwner: 'alice', indexPath: '/alice/files/a', etag: 'first' }], nextCursor: options.params.cursor ? null : 1 } }
+        if (url.endsWith('/members')) return { data: { items: options.params.cursor ? [{ id: 2, nodeId: 12, indexOwner: 'bob', indexPath: '/bob/files/b', etag: 'second' }] : [{ id: 1, nodeId: 11, indexOwner: 'alice', indexPath: '/alice/files/a', etag: 'first' }], nextCursor: options.params.cursor ? null : 1 } }
         return { data: { items: [{ hash: hashA, referenceCount: 3 }, { hash: hashB, referenceCount: 2 }], nextCursor: null } }
     }, async (url, body) => { submissions.push(body.payload); throw new Error('network interrupted') })
     await tick()
@@ -265,7 +265,13 @@ test('explicit plan selections survive member pages and group changes without ex
     assert.equal(plan.draftHash, hashA)
     assert.equal(plan.decisions.length, 2)
     assert.match(plan.error, /another group/)
+    await plan.save(); assert.equal(submissions.length, 0)
+    const keeper = vm.$el.querySelector('[data-keep-ref]')
+    assert.ok(keeper)
+    assert.match(keeper.textContent, /alice.*\/alice\/files\/a/)
+    keeper.value = '1'; keeper.dispatchEvent(new window.Event('change')); await tick()
     await plan.save(); await plan.save()
+    assert.equal(submissions[0].members[1].keepRef, 1)
     assert.equal(submissions[0].idempotencyKey, submissions[1].idempotencyKey)
     assert.equal(submissions[0].members[0].expected.etag, 'first')
     plan.note = 'new note'; await plan.save()

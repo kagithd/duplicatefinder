@@ -777,6 +777,13 @@
     "Membership observation belongs to another file revision. Refresh the selection before saving." : "Die Mitgliederbeobachtung gehört zu einer anderen Dateirevision. Aktualisiere die Auswahl vor dem Speichern.",
     "A proposal can include at most 20 membership pages." : "Ein Vorschlag kann höchstens 20 Mitgliederseiten enthalten.",
     "Conflict: file metadata, selected sharing or membership pages or the predecessor revision changed. The draft remains unchanged. Review the conflict before trying again." : "Konflikt: Dateimetadaten, ausgewählte Freigabe- oder Mitgliederseiten oder die Vorgängerrevision haben sich geändert. Der Entwurf bleibt unverändert. Prüfe den Konflikt vor einem neuen Versuch.",
+    "File selected to keep for this removal" : "Behaltedatei für diese vorgeschlagene Entfernung",
+    "Choose a kept file explicitly" : "Behaltedatei ausdrücklich auswählen",
+    "A distinct kept file must be selected before saving. No replacement is chosen automatically." : "Wähle vor dem Speichern eine andere Datei zum Behalten aus. Es wird kein Ersatz automatisch gewählt.",
+    "This relationship records your choice; current byte equality, integrity and access preservation are not established by it." : "Diese Beziehung dokumentiert deine Auswahl. Sie belegt weder aktuelle Bytegleichheit noch Integrität oder den Erhalt bisheriger Zugriffe.",
+    "Selected kept file" : "Ausgewählte Behaltedatei",
+    "No explicit kept file recorded in this revision" : "In dieser Revision ist keine ausdrückliche Behaltedatei hinterlegt",
+    "Select a distinct kept file for every proposed removal before saving. Your draft is retained." : "Wähle für jede vorgeschlagene Entfernung eine andere Datei zum Behalten aus. Dein Entwurf bleibt erhalten.",
     "The viewer is not available" : "Der Betrachter ist nicht verfügbar"
 },"pluralForm" :"nplurals=2; plural=(n != 1);"
 }
