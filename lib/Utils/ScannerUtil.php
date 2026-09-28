@@ -97,9 +97,9 @@ class ScannerUtil
                 $this->showOutput('Finished searching files');
             }
         } catch (LockedException $e) {
-            $this->showOutput('<e>File locked, attempting to release: ' . $e->getPath() . '</e>');
+            $this->showOutput('<e>Scan stopped; file remains locked: ' . $e->getPath() . '</e>');
 
-            throw $e; // Rethrow to be handled in FileInfoService
+            throw $e;
         } catch (\Exception $e) {
             $errorMessage = 'An error occurred during scanning: ' . $e->getMessage();
             $this->logger->error($errorMessage, ['app' => Application::ID, 'exception' => $e]);

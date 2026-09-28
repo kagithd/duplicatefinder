@@ -408,7 +408,8 @@ class FileInfoService
             $this->scannerUtil->setHandles($this, $output, $abortIfInterrupted);
             $this->scannerUtil->scan($user, $scanPath);
         } catch (\OCP\Lock\LockedException $e) {
-            $this->handleLockedFile($e->getPath(), $output);
+            $this->logger->warning('Scan stopped because a file is locked.', ['app' => Application::ID, 'exception' => $e]);
+            throw $e;
         } catch (NotFoundException $e) {
             $this->logger->error('The given scan path doesn\'t exists.', ['app' => Application::ID, 'exception' => $e]);
             CMDUtils::showIfOutputIsPresent(
@@ -421,59 +422,6 @@ class FileInfoService
                 '<error>An error occurred during scanning.</error>',
                 $output
             );
-        }
-    }
-
-    private function handleLockedFile(string $path, ?OutputInterface $output): void
-    {
-        try {
-            // Release the lock using the locking provider
-            $this->lockingProvider->releaseAll($path, ILockingProvider::LOCK_SHARED);
-            CMDUtils::showIfOutputIsPresent(
-                "Released lock for file: $path",
-                $output
-            );
-
-            // Check if the file is still locked
-            if ($this->lockingProvider->isLocked($path, ILockingProvider::LOCK_SHARED)) {
-                CMDUtils::showIfOutputIsPresent(
-                    "<error>File is still locked after release attempt: $path</error>",
-                    $output
-                );
-                // Call the method to disable all locks
-                $this->disableAllLocks($output);
-            } else {
-                CMDUtils::showIfOutputIsPresent(
-                    "<info>Successfully released all locks for file: $path</info>",
-                    $output
-                );
-            }
-        } catch (\Exception $e) {
-            CMDUtils::showIfOutputIsPresent(
-                "<error>Failed to release lock for file: $path - " . $e->getMessage() . '</error>',
-                $output
-            );
-            $this->logger->error("Failed to release lock for file: $path", ['exception' => $e]);
-            // Call the method to disable all locks
-            $this->disableAllLocks($output);
-        }
-    }
-
-    private function disableAllLocks(?OutputInterface $output): void
-    {
-        try {
-            $query = $this->connection->prepare('DELETE FROM oc_file_locks WHERE true');
-            $query->execute();
-            CMDUtils::showIfOutputIsPresent(
-                '<info>All locks have been disabled by emptying the oc_file_locks table.</info>',
-                $output
-            );
-        } catch (\Exception $e) {
-            CMDUtils::showIfOutputIsPresent(
-                '<error>Failed to disable all locks: ' . $e->getMessage() . '</error>',
-                $output
-            );
-            $this->logger->error('Failed to disable all locks', ['exception' => $e]);
         }
     }
 
