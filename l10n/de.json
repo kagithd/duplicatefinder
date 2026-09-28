@@ -829,6 +829,23 @@
     "Indexed user reference" : "Benutzerfundstelle im Index",
     "Recorded direct share" : "Gespeicherte direkte Freigabe",
     "Recorded group membership; file access unknown" : "Gespeicherte Gruppenmitgliedschaft; Dateizugriff unbekannt",
+    "Check worker" : "Prüf-Worker",
+    "Start processes queued checks only. Stop finishes the current file. Review unfinished jobs and their findings before selecting work again." : "Start bearbeitet nur wartende Prüfaufträge. Stopp beendet erst die aktuelle Datei. Prüfen Sie unvollständige Aufträge und deren Befunde, bevor Sie erneut Dateien auswählen.",
+    "Refresh worker status" : "Workerstatus aktualisieren",
+    "Start check worker" : "Prüf-Worker starten",
+    "Stop after current file" : "Nach aktueller Datei stoppen",
+    "Last status observation" : "Letzte Statusabfrage",
+    "Status is not updated automatically. Job results are listed separately below." : "Der Status wird nicht automatisch aktualisiert. Auftragsergebnisse stehen weiter unten.",
+    "Contacting worker control…" : "Workersteuerung wird abgefragt…",
+    "No worker process started" : "Kein Workerprozess gestartet",
+    "Worker process running" : "Workerprozess läuft",
+    "Worker is stopping after the current file" : "Worker stoppt nach der aktuellen Datei",
+    "Worker run finished" : "Workerlauf abgeschlossen",
+    "Worker stopped" : "Worker gestoppt",
+    "Worker process failed; review job results" : "Workerprozess fehlgeschlagen; Auftragsergebnisse prüfen",
+    "Worker status unknown. Refresh before starting or stopping." : "Workerstatus unbekannt. Vor Start oder Stopp aktualisieren.",
+    "The worker run changed. Refresh its status before stopping." : "Der Workerlauf hat sich geändert. Status vor dem Stoppen aktualisieren.",
+    "Worker state could not be confirmed. Refresh before trying again; a failed reply does not prove the worker stopped." : "Workerstatus konnte nicht bestätigt werden. Vor einem neuen Versuch aktualisieren; eine fehlgeschlagene Antwort beweist keinen Stopp.",
     "Path not determined" : "Pfad nicht ermittelt"
 },"pluralForm" :"nplurals=2; plural=(n != 1);"
 }

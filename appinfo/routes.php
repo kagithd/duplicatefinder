@@ -32,6 +32,9 @@ return [
        ['name' => 'check_job#get', 'url' => '/api/review/checks/{jobId}', 'verb' => 'GET'],
        ['name' => 'check_job#cancel', 'url' => '/api/review/checks/{jobId}/cancel', 'verb' => 'POST'],
 
+       ['name' => 'worker_control#status', 'url' => '/api/review/worker', 'verb' => 'GET'],
+       ['name' => 'worker_control#start', 'url' => '/api/review/worker/start', 'verb' => 'POST'],
+       ['name' => 'worker_control#stop', 'url' => '/api/review/worker/stop', 'verb' => 'POST'],
        // Filter routes
        ['name' => 'filter#index', 'url' => '/api/filters', 'verb' => 'GET'],
        ['name' => 'filter#create', 'url' => '/api/filters', 'verb' => 'POST'],

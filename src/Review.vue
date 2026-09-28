@@ -4,6 +4,7 @@
 			<h1>{{ t('duplicatefinder', 'Administrative duplicate review') }}</h1>
 			<p>{{ t('duplicatefinder', 'Read-only review of indexed SHA-256 candidates across users. Stored hashes have not been rechecked. Reference counts do not establish physical copies or file integrity.') }}</p>
 		</header>
+		<ReviewWorker />
 		<form class="review__filters" @submit.prevent="applyFilters">
             <label>{{ t('duplicatefinder', 'Indexed user (exact)') }}<input v-model="filterOwner" data-filter-owner maxlength="255"></label>
             <label>{{ t('duplicatefinder', 'Indexed folder (absolute path)') }}<input v-model="filterFolder" data-filter-folder maxlength="4096"></label>
@@ -179,6 +180,7 @@ import ReviewComparison from './components/ReviewComparison.vue'
 import ReviewMissingFindings from './components/ReviewMissingFindings.vue'
 import ReviewEvidenceSearch from './components/ReviewEvidenceSearch.vue'
 import ReviewShares from './components/ReviewShares.vue'
+import ReviewWorker from './components/ReviewWorker.vue'
 import ReviewChecks from './components/ReviewChecks.vue'
 import ReviewPlan from './components/ReviewPlan.vue'
 import ReviewPreview from './components/ReviewPreview.vue'
@@ -187,7 +189,7 @@ import { generateUrl } from '@nextcloud/router'
 
 export default {
 	name: 'Review',
-	components: { ReviewComparison, ReviewMissingFindings, ReviewEvidenceSearch, ReviewPlan, ReviewPreview, ReviewChecks, ReviewShares },
+	components: { ReviewComparison, ReviewMissingFindings, ReviewEvidenceSearch, ReviewPlan, ReviewPreview, ReviewChecks, ReviewShares, ReviewWorker },
 	data() {
 		return {
 			filterOwner: '', filterFolder: '', appliedOwner: '', appliedFolder: '',
