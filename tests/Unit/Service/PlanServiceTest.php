@@ -9,7 +9,7 @@ use OCA\DuplicateFinder\Db\ReviewMapper;
 use OCA\DuplicateFinder\Exception\EvidenceConflictException;
 use PHPUnit\Framework\TestCase;
 class PlanServiceTest extends TestCase  {
-    private function fixture(array $overrides = [], bool $alias = false, ?string $candidate = null, ?EvidenceService $evidence = null, ?\OCA\DuplicateFinder\Service\PreviewArtifactService $previews = null, ?PlanShareService $sharing = null, ?\OCA\DuplicateFinder\Service\DetailArtifactService $details = null): array  {
+    private function fixture(array $overrides = [], bool $alias = false, ?string $candidate = null, ?EvidenceService $evidence = null, ?\OCA\DuplicateFinder\Service\PreviewArtifactService $previews = null, ?PlanShareService $sharing = null, ?\OCA\DuplicateFinder\Service\DetailArtifactService $details = null, ?\OCA\DuplicateFinder\Service\PlanGroupService $groups = null): array  {
         $r=['id'=>1,'indexOwner'=>'alice','indexPath'=>'/alice/files/a','owner'=>'alice','path'=>'/alice/files/a','storageId'=>'home::alice','nodeId'=>4,'etag'=>'v1','size'=>12,'mtime'=>100,'availability'=>'available','candidateHash'=>str_repeat('a',64)];
         $r = array_merge($r, $overrides);
         $review=$this->createMock(ReviewService::class);
@@ -17,7 +17,7 @@ class PlanServiceTest extends TestCase  {
         $index=$this->createMock(ReviewMapper::class);
         $index->method('candidateHash')->willReturn($candidate ?? str_repeat('a',64));
         $mapper=$this->createMock(PlanMapper::class);
-        $service=new PlanService($mapper,$review,$index,$evidence ?? $this->createMock(EvidenceService::class), $previews ?? $this->createMock(\OCA\DuplicateFinder\Service\PreviewArtifactService::class), $sharing ?? $this->createMock(PlanShareService::class), $details ?? $this->createMock(\OCA\DuplicateFinder\Service\DetailArtifactService::class));
+        $service=new PlanService($mapper,$review,$index,$evidence ?? $this->createMock(EvidenceService::class), $previews ?? $this->createMock(\OCA\DuplicateFinder\Service\PreviewArtifactService::class), $sharing ?? $this->createMock(PlanShareService::class), $details ?? $this->createMock(\OCA\DuplicateFinder\Service\DetailArtifactService::class), $groups ?? $this->createMock(\OCA\DuplicateFinder\Service\PlanGroupService::class));
         $member=['appRef'=>1,'action'=>'keep','expected'=>$r,'evidenceIds'=>[],'manualAssessment'=>['status'=>'not_assessed','note'=>''],'reason'=>''];
         return [$service,$mapper,['hash'=>str_repeat('a',64),'members'=>[$member],'indexActions'=>[],'note'=>'','idempotencyKey'=>'request-1']];
     }
@@ -141,7 +141,7 @@ class PlanServiceTest extends TestCase  {
         if ($conflict) $mapper->expects($this->never())->method('save');
         else $mapper->expects($this->once())->method('save')->willReturnCallback(static fn($id,$prev,$key,$digest,$record) => $record);
         $service = new PlanService($mapper,$review,$index,$this->createMock(EvidenceService::class),
-            $this->createMock(\OCA\DuplicateFinder\Service\PreviewArtifactService::class), $this->createMock(PlanShareService::class), $this->createMock(\OCA\DuplicateFinder\Service\DetailArtifactService::class));
+            $this->createMock(\OCA\DuplicateFinder\Service\PreviewArtifactService::class), $this->createMock(PlanShareService::class), $this->createMock(\OCA\DuplicateFinder\Service\DetailArtifactService::class), $this->createMock(\OCA\DuplicateFinder\Service\PlanGroupService::class));
         $selection = static fn($ref,$action,$observed) => ['appRef'=>$ref,'action'=>$action,'expected'=>$observed,
             'evidenceIds'=>[],'manualAssessment'=>['status'=>'not_assessed','note'=>''],'reason'=>''];
         $payload = ['hash'=>str_repeat('a',64),'members'=>[$selection(1,$firstAction,$owner),$selection(2,$secondAction,$recipient)],
@@ -290,4 +290,38 @@ class PlanServiceTest extends TestCase  {
         }
     }
 
+
+    public function testStoresRevalidatedGroupPagesAndMembershipConflictStopsSaving(): void {
+        foreach ([false,true] as $conflict) {
+            $groups=$this->createMock(\OCA\DuplicateFinder\Service\PlanGroupService::class);
+            [$service,$mapper,$payload]=$this->fixture([],false,null,null,null,null,null,$groups);
+            $selected=[['query'=>['depth'=>0,'shareOffset'=>0,'shareId'=>'42','offset'=>0],'expected'=>['appRef'=>1]]];
+            $payload['members'][0]['groupPages']=$selected;
+            $server=['complete'=>false,'coverage'=>'selected_membership_pages_only','pages'=>[['page'=>['observedAt'=>123]]]];
+            $call=$groups->expects($this->once())->method('capture')->with(1,$selected,$payload['members'][0]['expected']);
+            if ($conflict) {
+                $call->willThrowException(new EvidenceConflictException('Membership changed'));
+                $mapper->expects($this->never())->method('save');
+                try {$service->create($payload,'admin');$this->fail('Changed membership saved');}
+                catch (EvidenceConflictException $e) {$this->assertNotEmpty($e->getMessage());}
+            } else {
+                $call->willReturn($server);
+                $mapper->method('save')->willReturnCallback(fn($id,$prev,$key,$digest,$record)=>$record);
+                $saved=$service->create($payload,'admin');
+                $this->assertSame($server,$saved['members'][0]['groupMembership']);
+                $this->assertFalse($saved['executable']);
+            }
+        }
+    }
+    public function testMembershipPagesAreBoundedAcrossTheEntirePlan(): void {
+        [$service,$mapper,$payload]=$this->fixture();
+        $payload['members'][0]['groupPages']=array_fill(0,11,[]);
+        $second=$payload['members'][0];$second['appRef']=2;
+        $second['expected']['id']=2;$second['expected']['nodeId']=5;
+        $payload['members'][]=$second;
+        $mapper->expects($this->never())->method('save');
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('20 selected membership pages');
+        $service->create($payload,'admin');
+    }
 }

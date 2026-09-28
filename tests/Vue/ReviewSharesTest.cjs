@@ -49,3 +49,30 @@ test('copying a loaded sharing page requires explicit enabled selection',async()
  vm.disabled=true;vm.selectPage();assert.equal(events.length,1)
  vm.$destroy();vm.$el.remove()
 })
+
+test('group members load explicitly with bound selectors and emit independent copied selection',async()=>{
+ const calls=[];const gp={appRef:7,observed:{id:7},observedAt:2,shareId:'1',groupId:'team',scope:'group_membership_only',complete:false,status:'observed',members:[{uid:'<img src=x>',enabled:true,accessStatus:'not_resolved'}],nextOffset:25,sharePage:{anchor:{depth:0}}}
+ const vm=mount(async(u,o)=>{calls.push([u,o.params]);return {data:u.endsWith('group-members')?gp:{...page(),type:1}}},true)
+ vm.type=1;await vm.load(0,0);assert.equal(calls.length,1)
+ await vm.loadGroup(vm.page.items[0],0);await tick()
+ assert.deepEqual(calls[1][1],{depth:0,shareOffset:0,shareId:'1',offset:0,pageSize:25})
+ assert.match(vm.$el.textContent,/Membership does not prove file access/);assert.equal(vm.$el.querySelector('img'),null)
+ const events=[];vm.$on('group-selected',x=>events.push(x));vm.selectGroup();assert.equal(events.length,1)
+ assert.deepEqual(events[0].query,{depth:0,shareOffset:0,shareId:'1',offset:0})
+ vm.groupPage.members[0].uid='changed';assert.equal(events[0].expected.members[0].uid,'<img src=x>')
+ vm.disabled=true;vm.selectGroup();assert.equal(events.length,1)
+ vm.$destroy();vm.$el.remove()
+})
+test('late membership response cannot populate another reference',async()=>{
+ let resolve;const vm=mount((u)=>u.endsWith('group-members')?new Promise(r=>resolve=r):Promise.resolve({data:{...page(),type:1}}))
+ vm.type=1;await vm.load(0,0);const pending=vm.loadGroup(vm.page.items[0],0)
+ vm.appRef=8;await tick();resolve({data:{appRef:7}});await pending
+ assert.equal(vm.groupPage,null);assert.equal(vm.groupBusy,false)
+ vm.$destroy();vm.$el.remove()
+})
+test('membership failure clears selection and rejects foreign share responses',async()=>{
+ const vm=mount(async(u)=>({data:u.endsWith('group-members')?{appRef:7,shareId:'99',members:[]}:{...page(),type:1}}),true)
+ vm.type=1;await vm.load(0,0);await vm.loadGroup(vm.page.items[0],0);assert.equal(vm.groupPage,null);assert.ok(vm.groupError)
+ const events=[];vm.$on('group-selected',x=>events.push(x));vm.selectGroup();assert.equal(events.length,0)
+ vm.$destroy();vm.$el.remove()
+})

@@ -12,7 +12,8 @@ class PlanService {
     private PreviewArtifactService $previews;
     private PlanShareService $sharing;
     private DetailArtifactService $details;
-    public function __construct(PlanMapper $mapper,ReviewService $review,ReviewMapper $index,EvidenceService $evidence,PreviewArtifactService $previews, PlanShareService $sharing, DetailArtifactService $details) {
+    private PlanGroupService $groups;
+    public function __construct(PlanMapper $mapper,ReviewService $review,ReviewMapper $index,EvidenceService $evidence,PreviewArtifactService $previews, PlanShareService $sharing, DetailArtifactService $details, PlanGroupService $groups) {
         $this->mapper=$mapper;
         $this->review=$review;
         $this->index=$index;
@@ -20,6 +21,7 @@ class PlanService {
         $this->previews=$previews;
         $this->sharing=$sharing;
         $this->details=$details;
+        $this->groups=$groups;
     }
     public function create(array $payload,string $creator):array {
         return $this->write(null,0,$payload,$creator);
@@ -70,8 +72,9 @@ class PlanService {
         $keep=0;
         $remove=0;
         $sharingPageCount=0;
+        $groupPageCount=0;
         foreach($p['members'] as $m) {
-            if(!is_array($m)||array_diff(array_keys($m),['appRef','action','expected','evidenceIds','manualAssessment','reason','sharePages'])) {
+            if(!is_array($m)||array_diff(array_keys($m),['appRef','action','expected','evidenceIds','manualAssessment','reason','sharePages','groupPages'])) {
                 throw new \InvalidArgumentException('Invalid member fields');
             }
             $ref=$m['appRef']??null;
@@ -123,9 +126,14 @@ class PlanService {
                 throw new \InvalidArgumentException('Plan is limited to 20 selected sharing pages');
             }
             $sharing=$this->sharing->capture($ref,$sharePages,$current);
+            $groupPages=$m['groupPages']??[];
+            if (!is_array($groupPages) || !array_is_list($groupPages) || ($groupPageCount+=count($groupPages))>20) {
+                throw new \InvalidArgumentException('Plan is limited to 20 selected membership pages');
+            }
+            $groupMembership=$this->groups->capture($ref,$groupPages,$current);
             $member = ['appRef' => $ref, 'action' => $action, 'observed' => $current,
                 'candidateHash' => $p['hash'], 'evidence' => [],
-                'manualAssessment' => $manual, 'reason' => $m['reason'], 'sharing' => $sharing];
+                'manualAssessment' => $manual, 'reason' => $m['reason'], 'sharing' => $sharing, 'groupMembership' => $groupMembership];
             // Account for the member and array comma before loading any findings.
             $this->addRecordBytes($recordBytes,
                 strlen(json_encode($member, JSON_THROW_ON_ERROR)) + ($members === [] ? 0 : 1));

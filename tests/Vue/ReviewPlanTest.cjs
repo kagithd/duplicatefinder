@@ -174,3 +174,16 @@ test('same detail source with reordered JSON fields preserves the assessment not
  vm.assessDetail({appRef:9,status:'problem',source:reordered})
  assert.equal(vm.decisions[0].manualAssessment.note,'Keep note')
 })
+
+test('membership selections are revision-bound, copied, capped globally and restored for editing',async()=>{
+ const vm=component({});vm.choose({id:7,etag:'v1'},'keep',null);const decision=vm.decisions[0]
+ const selection={appRef:7,query:{depth:0,shareOffset:0,shareId:'1',offset:0},expected:{appRef:7,observed:{id:7,etag:'v1'},members:[{uid:'a'}]}}
+ vm.selectGroup(decision,selection);assert.equal(decision.groupPages.length,1)
+ selection.expected.members[0].uid='b';assert.equal(decision.groupPages[0].expected.members[0].uid,'a')
+ vm.selectGroup(decision,{...selection,expected:{...selection.expected,observed:{id:7,etag:'v2'}}});assert.equal(decision.groupPages[0].expected.members[0].uid,'a')
+ for(let i=1;i<=20;i++)vm.selectGroup(decision,{...selection,query:{...selection.query,offset:i*25}})
+ assert.equal(vm.groupCount(),20);assert.match(vm.error,/20/)
+ vm.record={planId:'p',revision:1,hash:vm.hash,note:'',members:[{...decision,observed:decision.expected,groupMembership:{pages:[{query:selection.query,page:selection.expected}]}}]}
+ vm.editRevision();assert.equal(vm.decisions[0].groupPages[0].expected.members[0].uid,'b')
+ vm.removeGroup(vm.decisions[0],vm.decisions[0].groupPages[0]);assert.equal(vm.groupCount(),0)
+})

@@ -33,7 +33,14 @@
 					<p>{{ entry.expected.anchor.path }} · {{ t('duplicatefinder', 'Share type') }} {{ entry.query.type }} · {{ t('duplicatefinder', 'Page offset') }} {{ entry.query.offset }}</p>
 					<button type="button" :disabled="busy" @click="removeSharing(decision, entry)">{{ t('duplicatefinder', 'Remove sharing page from proposal') }}</button>
 				</li></ol>
-				<ReviewShares :app-ref="decision.appRef" :selectable="true" :disabled="busy" @selected="selectSharing(decision, $event)" />
+                <p>{{ t('duplicatefinder', 'Selected membership pages in this proposal') }}: {{ groupCount() }}/20</p>
+                <ol><li v-for="entry in decision.groupPages" :key="groupKey(entry.query)">
+                    <p>{{ entry.expected.groupId }} · {{ t('duplicatefinder', 'Share reference') }} {{ entry.query.shareId }} · {{ t('duplicatefinder', 'Page offset') }} {{ entry.query.offset }}</p>
+                    <p>{{ t('duplicatefinder', 'Membership does not prove file access.') }}</p>
+                    <ul><li v-for="member in entry.expected.members" :key="member.uid">{{ member.uid }} · {{ t('duplicatefinder', member.enabled ? 'Account enabled' : 'Account disabled') }}</li></ul>
+                    <button type="button" :disabled="busy" @click="removeGroup(decision, entry)">{{ t('duplicatefinder', 'Remove membership page from proposal') }}</button>
+                </li></ol>
+				<ReviewShares :app-ref="decision.appRef" :selectable="true" :disabled="busy" @selected="selectSharing(decision, $event)" @group-selected="selectGroup(decision, $event)" />
 				<ReviewPreview v-for="evidenceId in decision.evidenceIds" :key="decision.appRef + ':' + evidenceId" :app-ref="decision.appRef" :evidence-id="evidenceId" :allow-assessment="true" :disabled="busy" @assessed="assess(decision, $event)" />
 				<button type="button" :disabled="busy" @click="removeDecision(decision)">
 					{{ t('duplicatefinder', 'Remove selection') }}
@@ -124,6 +131,16 @@
 								<p>{{ t('duplicatefinder', 'Share permissions (bitmask)') }}: {{ share.permissions }} · {{ t('duplicatefinder', 'Effective file permissions (bitmask)') }}: {{ share.effectivePermissions == null ? '—' : share.effectivePermissions }}</p>
 							</li></ul>
 						</div>
+                        <h5>{{ t('duplicatefinder', 'Saved group membership observations') }}</h5>
+                        <p>{{ t('duplicatefinder', 'Membership does not prove file access. Unselected members and other access paths remain unknown.') }}</p>
+                        <p v-if="!storedGroups(member).length">{{ t('duplicatefinder', 'No membership pages were included in this revision.') }}</p>
+                        <div v-for="entry in storedGroups(member)" :key="groupKey(entry.query)" data-saved-membership>
+                            <p>{{ entry.page.groupId }} · {{ t('duplicatefinder', 'Share reference') }} {{ entry.query.shareId }} · {{ t('duplicatefinder', 'Page offset') }} {{ entry.query.offset }}</p>
+                            <p>{{ t('duplicatefinder', 'Share anchor') }}: {{ entry.page.sharePage.anchor.path }} · {{ t('duplicatefinder', 'Server rechecked at') }}: {{ timestamp(entry.page.observedAt) }}</p>
+                            <p v-if="entry.page.status === 'backend_not_qualified'">{{ t('duplicatefinder', 'Group provider not qualified; members not queried.') }}</p>
+                            <p v-else-if="!entry.page.members.length">{{ t('duplicatefinder', 'No members on this observed page.') }}</p>
+                            <ul><li v-for="person in entry.page.members" :key="person.uid">{{ person.uid }} · {{ t('duplicatefinder', person.enabled ? 'Account enabled' : 'Account disabled') }} · {{ t('duplicatefinder', 'File access not verified') }}</li></ul>
+                        </div>
 						<p v-if="!(member.evidence || []).length">{{ t('duplicatefinder', 'No technical finding selected') }}</p>
 						<ul v-else>
 							<li v-for="finding in member.evidence" :key="finding.id">
@@ -155,7 +172,23 @@ export default {
 	},
 	mounted() { window.addEventListener('beforeunload', this.guardUnload) },
 	beforeDestroy() { window.removeEventListener('beforeunload', this.guardUnload) },
-	methods: {
+    methods: {
+        groupKey(query) { return [query.depth, query.shareOffset, query.shareId, query.offset].join(':') },
+        groupCount() { return this.decisions.reduce((count, member) => count + (member.groupPages || []).length, 0) },
+        storedGroups(member) { return member.groupMembership?.pages || [] },
+        selectGroup(decision, selection) {
+            if (this.busy || !this.decisions.includes(decision) || selection.appRef !== decision.appRef || selection.expected?.appRef !== decision.appRef) return
+            const stable = value => JSON.stringify(Object.entries(value || {}).sort(([a], [b]) => a.localeCompare(b)))
+            if (stable(selection.expected.observed) !== stable(decision.expected)) { this.error = this.t('duplicatefinder', 'Membership observation belongs to another file revision. Refresh the selection before saving.'); return }
+            const pages = decision.groupPages || []
+            const index = pages.findIndex(entry => this.groupKey(entry.query) === this.groupKey(selection.query))
+            if (index < 0 && this.groupCount() >= 20) { this.error = this.t('duplicatefinder', 'A proposal can include at most 20 membership pages.'); return }
+            const entry = { query: copy(selection.query), expected: copy(selection.expected) }
+            if (index < 0) pages.push(entry); else pages.splice(index, 1, entry)
+            this.$set(decision, 'groupPages', pages); this.saved = false; this.error = ''
+        },
+        removeGroup(decision, entry) { if (this.busy) return; const index = (decision.groupPages || []).indexOf(entry); if (index >= 0) { decision.groupPages.splice(index, 1); this.saved = false } },
+
 		shareKey(query) { return [query.depth, query.type, query.offset].join(':') },
 		sharingCount() { return this.decisions.reduce((count, member) => count + (member.sharePages || []).length, 0) },
 		selectSharing(decision, selection) {
@@ -233,7 +266,7 @@ export default {
 			if (existing) { this.changeAction(existing, action); return }
 			if (this.decisions.length >= 100) { this.error = this.t('duplicatefinder', 'The proposal is limited to 100 explicitly selected references.'); return }
 			this.draftHash = this.hash
-			this.decisions.push({ appRef: member.id, action, expected: copy(member), evidenceIds: evidence?.entry ? [evidence.entry.id] : [], manualAssessment: { status: 'not_assessed', note: '' }, reason: '', sharePages: [] })
+			this.decisions.push({ appRef: member.id, action, expected: copy(member), evidenceIds: evidence?.entry ? [evidence.entry.id] : [], manualAssessment: { status: 'not_assessed', note: '' }, reason: '', sharePages: [], groupPages: [] })
 			this.saved = false
 			this.error = ''
 		},
@@ -258,7 +291,7 @@ export default {
 				const { data } = await axios.post(generateUrl(url), { payload: body })
 				this.record = data; this.revisionInput = data.revision; this.saved = true
 			} catch (error) {
-				this.error = this.t('duplicatefinder', error.response?.status === 409 ? 'Conflict: file metadata, selected sharing pages or the predecessor revision changed. The draft remains unchanged. Review the conflict before trying again.' : 'Proposal could not be saved. The draft remains available for retry.')
+				this.error = this.t('duplicatefinder', error.response?.status === 409 ? 'Conflict: file metadata, selected sharing or membership pages or the predecessor revision changed. The draft remains unchanged. Review the conflict before trying again.' : 'Proposal could not be saved. The draft remains available for retry.')
 			} finally { this.busy = false }
 		},
 		async loadPlans(cursor) {
@@ -270,7 +303,7 @@ export default {
 			try { const { data } = await axios.get(generateUrl('/apps/duplicatefinder/api/review/plans/' + encodeURIComponent(planId) + '/revisions/' + encodeURIComponent(revision))); this.record = data; this.revisionInput = data.revision } catch (error) { this.error = this.t('duplicatefinder', 'Saved revision could not be loaded.') } finally { this.busy = false }
 		},
 		editRevision() {
-			this.decisions = this.record.members.map(member => ({ appRef: member.appRef, action: member.action, expected: copy(member.observed || member.expected), evidenceIds: copy(member.evidenceIds || (member.evidence || []).map(entry => entry.id)), manualAssessment: copy(member.manualAssessment), reason: member.reason || '', sharePages: (member.sharing?.pages || []).map(entry => ({ query: copy(entry.query), expected: copy(entry.page) })) })); this.draftHash = this.record.hash; this.note = this.record.note; this.planId = this.record.planId; this.predecessor = this.record.revision; this.signature = ''; this.saved = false
+			this.decisions = this.record.members.map(member => ({ appRef: member.appRef, action: member.action, expected: copy(member.observed || member.expected), evidenceIds: copy(member.evidenceIds || (member.evidence || []).map(entry => entry.id)), manualAssessment: copy(member.manualAssessment), reason: member.reason || '', groupPages: (member.groupMembership?.pages || []).map(entry => ({ query: copy(entry.query), expected: copy(entry.page) })), sharePages: (member.sharing?.pages || []).map(entry => ({ query: copy(entry.query), expected: copy(entry.page) })) })); this.draftHash = this.record.hash; this.note = this.record.note; this.planId = this.record.planId; this.predecessor = this.record.revision; this.signature = ''; this.saved = false
 		},
 		async download() {
 			this.busy = true; this.error = ''

@@ -60,4 +60,13 @@ class ReviewAnnotationsTest extends TestCase
             $this->assertFalse($reflector->hasAnnotation($exemption), $exemption);
         }
     }
+
+    public function testMembershipReadRetainsRealMiddlewareProtection(): void {
+        if (!class_exists(ControllerMethodReflector::class)) $this->markTestSkipped('Nextcloud core required');
+        $reflector = new ControllerMethodReflector(new NullLogger());
+        $reflector->reflect(\OCA\DuplicateFinder\Controller\ReviewGroupController::class, 'page');
+        foreach (['NoCSRFRequired','NoAdminRequired','PublicPage'] as $exemption) {
+            $this->assertFalse($reflector->hasAnnotation($exemption),$exemption);
+        }
+    }
 }
