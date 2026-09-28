@@ -135,6 +135,24 @@
 					<li v-for="member in record.members" :key="member.appRef" data-saved-member>
 						<h4>{{ actionLabel(member.action) }} · {{ t('duplicatefinder', 'Reference') }} {{ member.appRef }}</h4>
                         <p v-if="member.action === 'remove'">{{ t('duplicatefinder', 'Selected kept file') }}: {{ keptLabel(member) }}</p>
+                        <section v-if="member.action === 'remove'" data-access-consequences>
+                            <h5>{{ t('duplicatefinder', 'Possible access consequences of this choice') }}</h5>
+                            <p>{{ t('duplicatefinder', 'Removing this reference may remove access through the paths below. Recorded routes to the kept file are shown for comparison, not as a guarantee of continued access.') }}</p>
+                            <p>{{ t('duplicatefinder', 'Access loss may be accepted. No replacement share is created and this view does not authorize removal.') }}</p>
+                            <p v-if="!consequences(member).keeper">{{ t('duplicatefinder', 'No valid kept reference in this revision; alternative access is unknown.') }}</p>
+                            <ul>
+                                <li v-for="person in consequences(member).people" :key="person.uid" data-affected-person>
+                                    <strong>{{ person.uid }}</strong>
+                                    <p>{{ t('duplicatefinder', 'Recorded routes for the proposed removal') }}</p>
+                                    <ul><li v-for="(route, index) in person.source" :key="index">{{ consequenceRoute(route) }}</li></ul>
+                                    <p>{{ t('duplicatefinder', 'Recorded routes to the selected kept file') }}</p>
+                                    <ul v-if="person.kept.length"><li v-for="(route, index) in person.kept" :key="index">{{ consequenceRoute(route) }}</li></ul>
+                                    <p v-else>{{ t('duplicatefinder', 'No route recorded; continued access is unknown, not proven absent.') }}</p>
+                                </li>
+                            </ul>
+                            <p>{{ t('duplicatefinder', 'Recorded public links potentially affected') }}: {{ consequences(member).publicLinks }}</p>
+                            <p>{{ t('duplicatefinder', 'Selected observations only. Other users, group members, public-link visitors and other access routes remain unknown. Historical paths, memberships and permissions have not been rechecked.') }}</p>
+                        </section>
 						<dl>
 							<dt>{{ t('duplicatefinder', 'Observed owner') }}</dt><dd>{{ observation(member).owner || '—' }}</dd>
 							<dt>{{ t('duplicatefinder', 'Indexed user') }}</dt><dd>{{ observation(member).indexOwner || '—' }}</dd>
@@ -208,6 +226,44 @@ export default {
 	mounted() { window.addEventListener('beforeunload', this.guardUnload) },
 	beforeDestroy() { window.removeEventListener('beforeunload', this.guardUnload) },
     methods: {
+        consequences(member) {
+            const keeper = (this.record?.members || []).find(candidate => candidate.appRef === member.keepRef && candidate.action === 'keep' && candidate.appRef !== member.appRef) || null
+            const routes = holder => {
+                const result = [], observed = holder ? this.observation(holder) : {}
+                const add = (uid, route) => { if (typeof uid === 'string' && uid) result.push({ uid, ...route }) }
+                const ownerPaths = new Set()
+                if (observed.indexOwner === observed.owner && observed.indexPath) ownerPaths.add(observed.indexPath)
+                const pages = [...(holder?.sharing?.pages || []).map(entry => entry.page), ...(holder?.groupMembership?.pages || []).map(entry => entry.page.sharePage)]
+                for (const page of pages) {
+                    if (Number.isSafeInteger(observed.nodeId) && observed.nodeId > 0 && page?.observed?.owner === observed.owner
+                        && page.observed.nodeId === observed.nodeId && typeof page.ownerPath === 'string' && page.ownerPath.startsWith('/')) ownerPaths.add(page.ownerPath)
+                }
+                add(observed.owner, { kind: 'owner', path: ownerPaths.size === 1 ? [...ownerPaths][0] : null })
+                if (observed.indexOwner !== observed.owner) add(observed.indexOwner, { kind: 'indexed', path: observed.indexPath || null })
+                for (const entry of holder?.sharing?.pages || []) {
+                    for (const share of entry.page.items || []) {
+                        if (share.type === 0) add(share.recipient, { kind: 'direct', path: share.pathStatus === 'observed' ? share.recipientPath : null })
+                    }
+                }
+                for (const entry of holder?.groupMembership?.pages || []) {
+                    for (const person of entry.page.members || []) add(person.uid, { kind: 'group', group: entry.page.groupId, enabled: person.enabled, path: null })
+                }
+                return result
+            }
+            const source = routes(member), kept = routes(keeper), people = []
+            for (const uid of new Set(source.map(route => route.uid))) {
+                people.push({ uid, source: source.filter(route => route.uid === uid), kept: kept.filter(route => route.uid === uid) })
+            }
+            const links = new Set()
+            for (const entry of member.sharing?.pages || []) for (const share of entry.page.items || []) if (share.type === 3) links.add(share.id)
+            return { keeper, people, publicLinks: links.size, complete: false }
+        },
+        consequenceRoute(route) {
+            const labels = { owner: 'Recorded file owner', indexed: 'Indexed user reference', direct: 'Recorded direct share', group: 'Recorded group membership; file access unknown' }
+            return this.t('duplicatefinder', labels[route.kind]) + (route.group ? ' · ' + route.group : '')
+                + (route.enabled === false ? ' · ' + this.t('duplicatefinder', 'Account disabled') : '')
+                + ' · ' + (route.path || this.t('duplicatefinder', 'Path not determined'))
+        },
         contentCompatible(decision, finding) {
             const report = finding?.record?.report
             return Number.isSafeInteger(finding?.id) && finding.id > 0 && finding.appRef === decision.appRef

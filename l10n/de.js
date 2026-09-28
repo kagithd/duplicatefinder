@@ -817,6 +817,20 @@ OC.L10N.register(
     "Finding history could not be loaded. Retry selection is unavailable." : "Die Befundhistorie konnte nicht geladen werden. Eine Wiederholung kann noch nicht ausgewählt werden.",
     "The existing check selection has different options or is full. It has not been changed." : "Die bestehende Prüfauswahl hat andere Optionen oder ist voll. Sie bleibt unverändert.",
     "File metadata changed. Review its current reference before creating another check." : "Die Dateimetadaten haben sich geändert. Prüfe die aktuelle Fundstelle vor einem neuen Prüfauftrag.",
-    "Current reference could not be loaded. The check selection is unchanged." : "Die aktuelle Fundstelle konnte nicht geladen werden. Die Prüfauswahl bleibt unverändert."
+    "Current reference could not be loaded. The check selection is unchanged." : "Die aktuelle Fundstelle konnte nicht geladen werden. Die Prüfauswahl bleibt unverändert.",
+    "Possible access consequences of this choice" : "Mögliche Zugriffsfolgen dieser Auswahl",
+    "Removing this reference may remove access through the paths below. Recorded routes to the kept file are shown for comparison, not as a guarantee of continued access." : "Beim Entfernen dieser Fundstelle kann der Zugriff über die folgenden Pfade entfallen. Gespeicherte Zugriffswege zur Behaltedatei dienen dem Vergleich und garantieren keinen fortbestehenden Zugriff.",
+    "Access loss may be accepted. No replacement share is created and this view does not authorize removal." : "Ein Zugriffsverlust darf bewusst akzeptiert werden. Es wird keine Ersatzfreigabe angelegt; diese Ansicht erteilt keine Entfernungsfreigabe.",
+    "No valid kept reference in this revision; alternative access is unknown." : "Keine gültige Behaltezuordnung in dieser Revision; ein alternativer Zugriff ist unbekannt.",
+    "Recorded routes for the proposed removal" : "Gespeicherte Beobachtungen zur vorgeschlagenen Entfernung",
+    "Recorded routes to the selected kept file" : "Gespeicherte Beobachtungen zur ausgewählten Behaltedatei",
+    "No route recorded; continued access is unknown, not proven absent." : "Kein Zugriffsweg gespeichert. Ein fortbestehender Zugriff ist unbekannt; sein Fehlen ist nicht nachgewiesen.",
+    "Recorded public links potentially affected" : "Gespeicherte öffentliche Links, die betroffen sein könnten",
+    "Selected observations only. Other users, group members, public-link visitors and other access routes remain unknown. Historical paths, memberships and permissions have not been rechecked." : "Nur ausgewählte Beobachtungen. Weitere Benutzer, Gruppenmitglieder, Besucher öffentlicher Links und andere Zugriffswege bleiben unbekannt. Historische Pfade, Mitgliedschaften und Rechte wurden nicht erneut geprüft.",
+    "Recorded file owner" : "Gespeicherter Dateieigentümer",
+    "Indexed user reference" : "Benutzerfundstelle im Index",
+    "Recorded direct share" : "Gespeicherte direkte Freigabe",
+    "Recorded group membership; file access unknown" : "Gespeicherte Gruppenmitgliedschaft; Dateizugriff unbekannt",
+    "Path not determined" : "Pfad nicht ermittelt"
 },
 "nplurals=2; plural=(n != 1);");

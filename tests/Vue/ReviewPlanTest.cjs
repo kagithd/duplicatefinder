@@ -82,6 +82,10 @@ test('renders escaped selected owners and paths and reviews an exact immutable r
  assert.match(summary.textContent,/No technical finding selected/)
  assert.match(summary.textContent,/Sharing consequences have not been fully determined/)
  assert.equal(summary.querySelectorAll('[data-saved-member]').length,2)
+ assert.equal(summary.querySelectorAll('[data-access-consequences]').length,1)
+ assert.match(summary.querySelector('[data-access-consequences]').textContent,/No valid kept reference/)
+ assert.match(summary.querySelector('[data-access-consequences]').textContent,/continued access is unknown/)
+ assert.match(summary.querySelector('[data-access-consequences]').textContent,/owner-b/)
  assert.equal(vm.$el.querySelector('details').hasAttribute('open'),false)
  assert.equal(summary.querySelectorAll('button,select,input,textarea').length,0)
  assert.equal(vm.decisions.length,1)
@@ -260,4 +264,42 @@ test('removing and readding a reference clears its old selected content and hist
  assert.equal(vm.decisions[0].contentEvidenceId,null)
  assert.equal(vm.selectedContent[3],undefined)
  assert.equal(vm.contentPages[3],undefined)
+})
+
+test('saved removal consequences compare recorded people without claiming access preservation',()=>{
+ const vm=component({})
+ const keep={appRef:1,action:'keep',observed:{owner:'bob',indexOwner:'bob',indexPath:'/bob/files/keep'}}
+ const remove={appRef:2,action:'remove',keepRef:1,observed:{owner:'alice',indexOwner:'alice',indexPath:'/alice/files/copy'},sharing:{pages:[{page:{items:[{id:'7',type:0,recipient:'bob',recipientPath:'/bob/files/shared',pathStatus:'observed'},{id:'8',type:3,recipient:null}]}}]},groupMembership:{pages:[{page:{groupId:'team',members:[{uid:'carol',enabled:false}]}}]}}
+ vm.record={members:[keep,remove]};const before=JSON.stringify(vm.record)
+ const summary=vm.consequences(remove)
+ assert.equal(summary.keeper.appRef,1)
+ assert.deepEqual(summary.people.map(p=>p.uid),['alice','bob','carol'])
+ assert.equal(summary.people.find(p=>p.uid==='alice').kept.length,0)
+ assert.ok(summary.people.find(p=>p.uid==='bob').kept.some(p=>p.kind==='owner'))
+ assert.equal(summary.people.find(p=>p.uid==='carol').source[0].enabled,false)
+ assert.equal(summary.publicLinks,1);assert.equal(summary.complete,false)
+ assert.equal(JSON.stringify(vm.record),before)
+})
+
+test('consequences preserve unknown coverage and do not substitute another kept file',()=>{
+ const vm=component({});const remove={appRef:2,action:'remove',keepRef:99,observed:{owner:'alice',indexOwner:'recipient',indexPath:'/recipient/files/shared'}}
+ vm.record={members:[{appRef:1,action:'keep',observed:{owner:'alice'}},remove]}
+ const summary=vm.consequences(remove)
+ assert.equal(summary.keeper,null);assert.equal(summary.complete,false)
+ assert.equal(summary.people.find(p=>p.uid==='alice').source[0].path,null)
+ assert.equal(summary.people.find(p=>p.uid==='recipient').source[0].path,'/recipient/files/shared')
+ assert.ok(summary.people.every(p=>p.kept.length===0))
+})
+
+test('consequences use bound saved owner paths without confusing recipient paths',()=>{
+ const vm=component({});const observed={owner:'alice',indexOwner:'bob',indexPath:'/bob/files/shared',nodeId:12}
+ const member={appRef:2,action:'remove',observed,sharing:{pages:[{page:{observed:{...observed},ownerPath:'/alice/files/original',items:[]}}]}}
+ vm.record={members:[member]}
+ assert.equal(vm.consequences(member).people.find(p=>p.uid==='alice').source[0].path,'/alice/files/original')
+ member.sharing.pages[0].page.observed.nodeId=13
+ assert.equal(vm.consequences(member).people.find(p=>p.uid==='alice').source[0].path,null)
+ member.groupMembership={pages:[{page:{members:[],sharePage:{observed:{...observed},ownerPath:'/alice/files/from-group'}}}]}
+ assert.equal(vm.consequences(member).people.find(p=>p.uid==='alice').source[0].path,'/alice/files/from-group')
+ member.sharing.pages[0].page.observed.nodeId=12
+ assert.equal(vm.consequences(member).people.find(p=>p.uid==='alice').source[0].path,null)
 })
