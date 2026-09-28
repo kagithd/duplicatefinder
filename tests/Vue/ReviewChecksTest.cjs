@@ -169,3 +169,26 @@ test('detail result is explicitly loaded with exact job and artifact binding; ot
  artifact.record.descriptor.frameIndex=0;await checks.loadDetail(item);await tick()
  assert.equal(checks.detailImages[checks.detailKey(item)],undefined);assert.equal(checks.$el.querySelectorAll('[data-detail-image]').length,1);assert.ok(checks.error);dispose(vm)
 })
+
+test('content choice submits no decoder artifacts and retains image settings in the draft', async()=>{
+ const sent=[];const vm=mount(baseGet,async(url,body)=>{sent.push(body.payload);throw Error('offline')});await tick()
+ const c=vm.$refs.checks;c.choose(member());c.toggleDetail(c.selection[0],true);await tick()
+ const select=c.$el.querySelector('[data-check-kind]');assert.ok(select)
+ select.value='content';select.dispatchEvent(new window.Event('change',{bubbles:true}));await tick()
+ await c.submit();assert.equal(sent[0].kind,'content');assert.equal(sent[0].preview,false)
+ assert.equal(sent[0].members[0].detail,undefined);assert.ok(c.selection[0].detail)
+ assert.equal(c.$el.querySelector('[data-detail-frame]'),null)
+ dispose(vm)
+})
+test('content finding load binds the exact historical ID and displays hash without decode approval',async()=>{
+ const saved=job('completed');saved.kind='content';saved.items[0]={appRef:1,snapshot:saved.items[0].snapshot,status:'read',contentEvidenceId:23}
+ const finding={id:23,appRef:1,createdAt:1700000000,usability:'unverifiable',actionEligible:false,record:{report:{status:'read',algorithm:'sha256',digest:'b'.repeat(64),formatStatus:'not_checked',actionEligible:false,before:saved.items[0].snapshot,after:saved.items[0].snapshot}}}
+ const calls=[];const vm=mount(async(url,options)=>{if(url.includes('/content-evidence')){calls.push(options);return{data:{items:[finding],nextCursor:null}}}return baseGet(url)});await tick()
+ const c=vm.$refs.checks;c.record=saved;await tick()
+ const button=c.$el.querySelector('[data-content-load]');assert.ok(button);button.click();await tick()
+ assert.deepEqual(calls[0].params,{cursor:24,pageSize:1})
+ assert.match(c.$el.textContent,/b{64}/);assert.match(c.$el.textContent,/File format was not checked/)
+ finding.id=22;await c.loadContent(c.record.items[0]);await tick()
+ assert.ok(c.error);assert.doesNotMatch(c.$el.textContent,/b{64}/)
+ dispose(vm)
+})

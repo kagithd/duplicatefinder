@@ -13,7 +13,8 @@ class PlanService {
     private PlanShareService $sharing;
     private DetailArtifactService $details;
     private PlanGroupService $groups;
-    public function __construct(PlanMapper $mapper,ReviewService $review,ReviewMapper $index,EvidenceService $evidence,PreviewArtifactService $previews, PlanShareService $sharing, DetailArtifactService $details, PlanGroupService $groups) {
+    private ContentEvidenceService $content;
+    public function __construct(PlanMapper $mapper,ReviewService $review,ReviewMapper $index,EvidenceService $evidence,PreviewArtifactService $previews, PlanShareService $sharing, DetailArtifactService $details, PlanGroupService $groups, ContentEvidenceService $content) {
         $this->mapper=$mapper;
         $this->review=$review;
         $this->index=$index;
@@ -22,6 +23,7 @@ class PlanService {
         $this->sharing=$sharing;
         $this->details=$details;
         $this->groups=$groups;
+        $this->content=$content;
     }
     public function create(array $payload,string $creator):array {
         return $this->write(null,0,$payload,$creator);
@@ -74,7 +76,7 @@ class PlanService {
         $sharingPageCount=0;
         $groupPageCount=0;
         foreach($p['members'] as $m) {
-            if(!is_array($m)||array_diff(array_keys($m),['appRef','action','expected','evidenceIds','manualAssessment','reason','sharePages','groupPages','keepRef'])) {
+            if(!is_array($m)||array_diff(array_keys($m),['appRef','action','expected','evidenceIds','manualAssessment','reason','sharePages','groupPages','keepRef','contentEvidenceId'])) {
                 throw new \InvalidArgumentException('Invalid member fields');
             }
             $ref=$m['appRef']??null;
@@ -138,6 +140,7 @@ class PlanService {
             $groupMembership=$this->groups->capture($ref,$groupPages,$current);
             $member = ['appRef' => $ref, 'action' => $action, 'keepRef' => $keepRef, 'observed' => $current,
                 'candidateHash' => $p['hash'], 'evidence' => [],
+                'contentEvidence' => $this->captureContent($m['contentEvidenceId']??null,$ref,$current),
                 'manualAssessment' => $manual, 'reason' => $m['reason'], 'sharing' => $sharing, 'groupMembership' => $groupMembership];
             // Account for the member and array comma before loading any findings.
             $this->addRecordBytes($recordBytes,
@@ -187,6 +190,34 @@ class PlanService {
             throw new \InvalidArgumentException('Saved revision too large');
         }
         return $this->mapper->save($planId,$prev,$key,$digest,$record);
+    }
+
+    /** Retain a selected historical byte observation; this does not authorize any action. */
+    private function captureContent($id, int $ref, array $current): ?array {
+        if ($id===null) return null;
+        if (!is_int($id) || $id<1 || $id>=PHP_INT_MAX) {
+            throw new \InvalidArgumentException('Invalid content evidence ID');
+        }
+        $finding=$this->content->getEvidence($id,$ref);
+        $report=$finding['record']['report']??null;
+        if ($finding===null || ($finding['id']??null)!==$id || ($finding['appRef']??null)!==$ref ||
+            !is_array($report) || ($report['status']??null)!=='read' || ($report['algorithm']??null)!=='sha256' ||
+            !is_string($report['digest']??null) || !preg_match('/\A[a-f0-9]{64}\z/',$report['digest'])) {
+            throw new EvidenceConflictException('Selected content observation unavailable');
+        }
+        foreach (['before','after'] as $phase) {
+            $snapshot=$report[$phase]??null;
+            if (!is_array($snapshot) || ($snapshot['appRef']??null)!==$ref) {
+                throw new EvidenceConflictException('Content observation belongs to another reference');
+            }
+            foreach (['indexOwner','indexPath','owner','path','nodeId','storageId','etag','size','mtime'] as $field) {
+                if (!array_key_exists($field,$current) || !array_key_exists($field,$snapshot) || $snapshot[$field]!==$current[$field]) {
+                    throw new EvidenceConflictException('Content observation does not match selected file metadata');
+                }
+            }
+        }
+        // Digest may differ from the candidate index: keep that discrepancy reviewable.
+        return $finding;
     }
 
     /** A human statement concerns this historical artifact, never current native integrity. */

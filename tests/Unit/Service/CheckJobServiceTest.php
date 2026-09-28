@@ -2,7 +2,7 @@
 namespace OCA\DuplicateFinder\Tests\Unit\Service;
 
 use OCA\DuplicateFinder\Db\CheckJobMapper;
-use OCA\DuplicateFinder\Service\{CheckJobService,ReviewService,EvidenceSnapshotService,EvidenceService,PreviewArtifactService,DetailArtifactService};
+use OCA\DuplicateFinder\Service\{CheckJobService,ReviewService,EvidenceSnapshotService,EvidenceService,PreviewArtifactService,DetailArtifactService,ContentEvidenceService};
 use OCA\DuplicateFinder\Exception\EvidenceConflictException;
 use OCP\AppFramework\Utility\ITimeFactory;
 use PHPUnit\Framework\TestCase;
@@ -18,10 +18,11 @@ class CheckJobServiceTest extends TestCase {
         $evidence=$this->createMock(EvidenceService::class);
         $previews=$this->createMock(PreviewArtifactService::class);
         $details=$this->createMock(DetailArtifactService::class);
-        $service=new CheckJobService($mapper,$review,new EvidenceSnapshotService($review),$evidence,$previews,$clock,$details);
+        $content=$this->createMock(ContentEvidenceService::class);
+        $service=new CheckJobService($mapper,$review,new EvidenceSnapshotService($review),$evidence,$previews,$clock,$details,$content);
         $payload=['idempotencyKey'=>'request-1','members'=>[['appRef'=>1,'expected'=>$ref]],'preview'=>true];
         $mapper->method('insert')->willReturnArgument(3);
-        return [$service,$mapper,$payload,$evidence,$previews,$details];
+        return [$service,$mapper,$payload,$evidence,$previews,$details,$content];
     }
     public function testSelectionQueuesMetadataSnapshotWithoutExposingLease(): void {
         [$s,$m,$p]=$this->fixture();
@@ -207,6 +208,44 @@ class CheckJobServiceTest extends TestCase {
         $result=$s->completeItem($job['jobId'],str_repeat('a',64),1,['status'=>'passed','evidenceId'=>3,'detailStatus'=>'unavailable']);
         $this->assertSame('unavailable',$result['items'][0]['detailStatus']);
         $this->assertArrayNotHasKey('detailId',$result['items'][0]);
+    }
+
+
+    public function testContentKindQueuesAndClaimsWithoutPreview(): void {
+        [$s,$m,$p]=$this->fixture();$p['kind']='content';$p['preview']=false;
+        $job=$s->create($p,'admin');
+        $this->assertSame('content',$job['kind']);
+        $job['rowVersion']=0;$m->method('candidates')->willReturn([$job]);$m->method('compareAndSwap')->willReturn(true);
+        $this->assertSame('content',$s->claim()['kind']);
+    }
+    public function testContentCannotRequestDecoderArtifactsOrUnknownKind(): void {
+        foreach(['preview','detail','unknown']as$case) {
+            [$s,$m,$p]=$this->fixture();$p['kind']='content';$p['preview']=false;
+            if($case==='preview')$p['preview']=true;
+            if($case==='detail')$p['members'][0]['detail']=['frameIndex'=>0,'x'=>0,'y'=>0,'width'=>1,'height'=>1];
+            if($case==='unknown')$p['kind']='other';
+            $m->expects($this->never())->method('insert');
+            try {$s->create($p,'admin');$this->fail('Mixed kind accepted');}
+            catch(\InvalidArgumentException $e){$this->assertNotSame('',$e->getMessage());}
+        }
+    }
+    public function testContentCompletionRequiresItsOwnBoundEvidence(): void {
+        [$s,$m,$p,$e,$v,$d,$content]=$this->fixture();$p['kind']='content';$p['preview']=false;
+        $job=$this->running($s,$p);$snapshot=$job['items'][0]['snapshot'];
+        $m->method('find')->willReturn($job);$m->method('compareAndSwap')->willReturn(true);
+        $content->method('getEvidence')->with(23,1)->willReturn(['id'=>23,'appRef'=>1,'record'=>['report'=>['status'=>'read','before'=>$snapshot,'after'=>$snapshot]]]);
+        $e->expects($this->never())->method('getEvidence');
+        $done=$s->completeItem($job['jobId'],str_repeat('a',64),1,['status'=>'read','contentEvidenceId'=>23]);
+        $this->assertSame('completed',$done['state']);$this->assertSame(23,$done['items'][0]['contentEvidenceId']);
+    }
+    public function testContentMissingForeignAndDecoderEvidenceRejected(): void {
+        foreach([['status'=>'read'],['status'=>'read','contentEvidenceId'=>23],['status'=>'passed','evidenceId'=>23]]as$result) {
+            [$s,$m,$p]=$this->fixture();$p['kind']='content';$p['preview']=false;
+            $job=$this->running($s,$p);$m->method('find')->willReturn($job);
+            $m->expects($this->never())->method('compareAndSwap');
+            try {$s->completeItem($job['jobId'],str_repeat('a',64),1,$result);$this->fail('Unbound result accepted');}
+            catch(\InvalidArgumentException $e){$this->assertNotSame('',$e->getMessage());}
+        }
     }
 
 }

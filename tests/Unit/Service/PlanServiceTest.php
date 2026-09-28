@@ -9,7 +9,7 @@ use OCA\DuplicateFinder\Db\ReviewMapper;
 use OCA\DuplicateFinder\Exception\EvidenceConflictException;
 use PHPUnit\Framework\TestCase;
 class PlanServiceTest extends TestCase  {
-    private function fixture(array $overrides = [], bool $alias = false, ?string $candidate = null, ?EvidenceService $evidence = null, ?\OCA\DuplicateFinder\Service\PreviewArtifactService $previews = null, ?PlanShareService $sharing = null, ?\OCA\DuplicateFinder\Service\DetailArtifactService $details = null, ?\OCA\DuplicateFinder\Service\PlanGroupService $groups = null): array  {
+    private function fixture(array $overrides = [], bool $alias = false, ?string $candidate = null, ?EvidenceService $evidence = null, ?\OCA\DuplicateFinder\Service\PreviewArtifactService $previews = null, ?PlanShareService $sharing = null, ?\OCA\DuplicateFinder\Service\DetailArtifactService $details = null, ?\OCA\DuplicateFinder\Service\PlanGroupService $groups = null, ?\OCA\DuplicateFinder\Service\ContentEvidenceService $content = null): array  {
         $r=['id'=>1,'indexOwner'=>'alice','indexPath'=>'/alice/files/a','owner'=>'alice','path'=>'/alice/files/a','storageId'=>'home::alice','nodeId'=>4,'etag'=>'v1','size'=>12,'mtime'=>100,'availability'=>'available','candidateHash'=>str_repeat('a',64)];
         $r = array_merge($r, $overrides);
         $review=$this->createMock(ReviewService::class);
@@ -17,7 +17,7 @@ class PlanServiceTest extends TestCase  {
         $index=$this->createMock(ReviewMapper::class);
         $index->method('candidateHash')->willReturn($candidate ?? str_repeat('a',64));
         $mapper=$this->createMock(PlanMapper::class);
-        $service=new PlanService($mapper,$review,$index,$evidence ?? $this->createMock(EvidenceService::class), $previews ?? $this->createMock(\OCA\DuplicateFinder\Service\PreviewArtifactService::class), $sharing ?? $this->createMock(PlanShareService::class), $details ?? $this->createMock(\OCA\DuplicateFinder\Service\DetailArtifactService::class), $groups ?? $this->createMock(\OCA\DuplicateFinder\Service\PlanGroupService::class));
+        $service=new PlanService($mapper,$review,$index,$evidence ?? $this->createMock(EvidenceService::class), $previews ?? $this->createMock(\OCA\DuplicateFinder\Service\PreviewArtifactService::class), $sharing ?? $this->createMock(PlanShareService::class), $details ?? $this->createMock(\OCA\DuplicateFinder\Service\DetailArtifactService::class), $groups ?? $this->createMock(\OCA\DuplicateFinder\Service\PlanGroupService::class), $content ?? $this->createMock(\OCA\DuplicateFinder\Service\ContentEvidenceService::class));
         $member=['appRef'=>1,'action'=>'keep','expected'=>$r,'evidenceIds'=>[],'manualAssessment'=>['status'=>'not_assessed','note'=>''],'reason'=>''];
         return [$service,$mapper,['hash'=>str_repeat('a',64),'members'=>[$member],'indexActions'=>[],'note'=>'','idempotencyKey'=>'request-1']];
     }
@@ -185,7 +185,7 @@ class PlanServiceTest extends TestCase  {
         if ($conflict) $mapper->expects($this->never())->method('save');
         else $mapper->expects($this->once())->method('save')->willReturnCallback(static fn($id,$prev,$key,$digest,$record) => $record);
         $service = new PlanService($mapper,$review,$index,$this->createMock(EvidenceService::class),
-            $this->createMock(\OCA\DuplicateFinder\Service\PreviewArtifactService::class), $this->createMock(PlanShareService::class), $this->createMock(\OCA\DuplicateFinder\Service\DetailArtifactService::class), $this->createMock(\OCA\DuplicateFinder\Service\PlanGroupService::class));
+            $this->createMock(\OCA\DuplicateFinder\Service\PreviewArtifactService::class), $this->createMock(PlanShareService::class), $this->createMock(\OCA\DuplicateFinder\Service\DetailArtifactService::class), $this->createMock(\OCA\DuplicateFinder\Service\PlanGroupService::class), $this->createMock(\OCA\DuplicateFinder\Service\ContentEvidenceService::class));
         $selection = static fn($ref,$action,$observed) => ['appRef'=>$ref,'action'=>$action,'keepRef'=>$action==='remove'?3-$ref:null,'expected'=>$observed,
             'evidenceIds'=>[],'manualAssessment'=>['status'=>'not_assessed','note'=>''],'reason'=>''];
         $payload = ['hash'=>str_repeat('a',64),'members'=>[$selection(1,$firstAction,$owner),$selection(2,$secondAction,$recipient)],
@@ -368,4 +368,39 @@ class PlanServiceTest extends TestCase  {
         $this->expectExceptionMessage('20 selected membership pages');
         $service->create($payload,'admin');
     }
+
+    public function testSelectedContentObservationIsStoredWithoutActionApproval(): void {
+        $content=$this->createMock(\OCA\DuplicateFinder\Service\ContentEvidenceService::class);
+        [$s,$m,$p]=$this->fixture(content:$content);
+        $snapshot=$p['members'][0]['expected'];unset($snapshot['id'],$snapshot['availability'],$snapshot['candidateHash']);
+        $snapshot['appRef']=1;$snapshot['revisionToken']=str_repeat('c',64);
+        $finding=['id'=>23,'appRef'=>1,'actionEligible'=>false,'usability'=>'unverifiable','record'=>['report'=>[
+            'status'=>'read','algorithm'=>'sha256','digest'=>str_repeat('b',64),'before'=>$snapshot,'after'=>$snapshot]]];
+        $content->method('getEvidence')->with(23,1)->willReturn($finding);
+        $p['members'][0]['contentEvidenceId']=23;
+        $m->expects($this->once())->method('save')->willReturnCallback(function($id,$prev,$key,$digest,$record)use($finding){
+            $this->assertSame($finding,$record['members'][0]['contentEvidence']);
+            $this->assertFalse($record['executable']);
+            $this->assertContains('native_revision_not_rechecked',$record['limitations']);
+            return $record;
+        });
+        $s->create($p,'admin');
+    }
+    public function testForeignOrChangedContentObservationCannotPersist(): void {
+        foreach(['missing','ref','revision','status']as$case) {
+            $content=$this->createMock(\OCA\DuplicateFinder\Service\ContentEvidenceService::class);
+            [$s,$m,$p]=$this->fixture(content:$content);$r=$p['members'][0]['expected'];
+            unset($r['id'],$r['availability'],$r['candidateHash']);$r['appRef']=1;$r['revisionToken']=str_repeat('c',64);
+            $f=['id'=>23,'appRef'=>1,'record'=>['report'=>['status'=>'read','algorithm'=>'sha256','digest'=>str_repeat('b',64),'before'=>$r,'after'=>$r]]];
+            if($case==='missing')$f=null;
+            if($case==='ref')$f['appRef']=2;
+            if($case==='revision')$f['record']['report']['after']['etag']='old';
+            if($case==='status')$f['record']['report']['status']='passed';
+            $content->method('getEvidence')->willReturn($f);$p['members'][0]['contentEvidenceId']=23;
+            $m->expects($this->never())->method('save');
+            try {$s->create($p,'admin');$this->fail('Invalid content binding accepted');}
+            catch(\OCA\DuplicateFinder\Exception\EvidenceConflictException $e){$this->assertNotSame('',$e->getMessage());}
+        }
+    }
+
 }

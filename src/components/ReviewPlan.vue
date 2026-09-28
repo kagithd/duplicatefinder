@@ -50,6 +50,24 @@
                     <ul><li v-for="member in entry.expected.members" :key="member.uid">{{ member.uid }} · {{ t('duplicatefinder', member.enabled ? 'Account enabled' : 'Account disabled') }}</li></ul>
                     <button type="button" :disabled="busy" @click="removeGroup(decision, entry)">{{ t('duplicatefinder', 'Remove membership page from proposal') }}</button>
                 </li></ol>
+                <section data-plan-content :aria-label="t('duplicatefinder', 'Content observation for this proposal')">
+                    <h4>{{ t('duplicatefinder', 'Content observation for this proposal') }}</h4>
+                    <p>{{ t('duplicatefinder', 'Historical bytes only. File format and current original revision are not verified; no removal authorization.') }}</p>
+                    <p v-if="selectedContent[decision.appRef]" data-selected-content>{{ contentLabel(selectedContent[decision.appRef]) }}</p>
+                    <p v-else>{{ t('duplicatefinder', 'No content observation selected') }}</p>
+                    <button v-if="decision.contentEvidenceId" type="button" :disabled="busy" @click="selectContent(decision, null)">{{ t('duplicatefinder', 'Clear content observation') }}</button>
+                    <button data-load-plan-content type="button" :disabled="busy || !!(contentPages[decision.appRef] && contentPages[decision.appRef].loading)" @click="loadContentHistory(decision, 0)">{{ t('duplicatefinder', 'Load content observations') }}</button>
+                    <template v-if="contentPages[decision.appRef]">
+                        <p v-if="contentPages[decision.appRef].loading" role="status">{{ t('duplicatefinder', 'Loading') }}</p>
+                        <p v-if="contentPages[decision.appRef].error" role="alert">{{ contentPages[decision.appRef].error }}</p>
+                        <ul><li v-for="finding in contentPages[decision.appRef].items" :key="finding.id">
+                            <p>{{ contentLabel(finding) }}</p>
+                            <button data-select-plan-content type="button" :disabled="busy || !contentCompatible(decision, finding)" @click="selectContent(decision, finding)">{{ t('duplicatefinder', 'Select this content observation') }}</button>
+                            <p v-if="!contentCompatible(decision, finding)">{{ t('duplicatefinder', 'Does not match the selected file metadata') }}</p>
+                        </li></ul>
+                        <button v-if="contentPages[decision.appRef].nextCursor !== null" type="button" :disabled="busy || contentPages[decision.appRef].loading" @click="loadContentHistory(decision, contentPages[decision.appRef].nextCursor)">{{ t('duplicatefinder', 'Older content observations') }}</button>
+                    </template>
+                </section>
 				<ReviewShares :app-ref="decision.appRef" :selectable="true" :disabled="busy" @selected="selectSharing(decision, $event)" @group-selected="selectGroup(decision, $event)" />
 				<ReviewPreview v-for="evidenceId in decision.evidenceIds" :key="decision.appRef + ':' + evidenceId" :app-ref="decision.appRef" :evidence-id="evidenceId" :allow-assessment="true" :disabled="busy" @assessed="assess(decision, $event)" />
 				<button type="button" :disabled="busy" @click="removeDecision(decision)">
@@ -127,6 +145,12 @@
 						<p>{{ t('duplicatefinder', 'Reason') }}: {{ member.reason || '—' }}</p>
 						<p>{{ assessmentLabel((member.manualAssessment || {}).status, (member.manualAssessment || {}).source) }} · {{ (member.manualAssessment || {}).note || '—' }}</p>
 						<p v-if="member.manualAssessment && member.manualAssessment.source">{{ sourceLabel(member.manualAssessment.source) }}</p>
+                        <div data-saved-content>
+                            <h5>{{ t('duplicatefinder', 'Saved content observation') }}</h5>
+                            <p v-if="member.contentEvidence">{{ contentLabel(member.contentEvidence) }}</p>
+                            <p v-else>{{ t('duplicatefinder', 'No content observation selected') }}</p>
+                            <p>{{ t('duplicatefinder', 'Historical bytes only. File format and current original revision are not verified; no removal authorization.') }}</p>
+                        </div>
 						<h5>{{ t('duplicatefinder', 'Saved sharing observations') }}</h5>
 						<p>{{ t('duplicatefinder', 'Selected pages only; unobserved sharing consequences remain unknown.') }}</p>
 						<p v-if="!storedSharing(member).length">{{ t('duplicatefinder', 'No sharing pages were included in this revision.') }}</p>
@@ -179,11 +203,40 @@ export default {
 	components: { ReviewPreview, ReviewShares },
 	props: { hash: { type: String, default: '' } },
 	data() {
-		return { decisions: [], draftHash: '', note: '', predecessor: null, planId: null, signature: '', retryKey: '', busy: false, error: '', saved: false, plans: [], nextCursor: null, record: null, revisionInput: 1 }
+		return { contentPages: {}, selectedContent: {}, decisions: [], draftHash: '', note: '', predecessor: null, planId: null, signature: '', retryKey: '', busy: false, error: '', saved: false, plans: [], nextCursor: null, record: null, revisionInput: 1 }
 	},
 	mounted() { window.addEventListener('beforeunload', this.guardUnload) },
 	beforeDestroy() { window.removeEventListener('beforeunload', this.guardUnload) },
     methods: {
+        contentCompatible(decision, finding) {
+            const report = finding?.record?.report
+            return Number.isSafeInteger(finding?.id) && finding.id > 0 && finding.appRef === decision.appRef
+                && report?.status === 'read' && report.algorithm === 'sha256' && /^[a-f0-9]{64}$/.test(report.digest)
+                && ['before', 'after'].every(phase => report[phase]?.appRef === decision.appRef
+                    && ['indexOwner', 'indexPath', 'owner', 'path', 'nodeId', 'storageId', 'etag', 'size', 'mtime']
+                        .every(field => decision.expected[field] !== undefined && report[phase][field] === decision.expected[field]))
+        },
+        contentLabel(finding) {
+            return '#' + finding.id + ' · ' + this.timestamp(finding.createdAt) + ' · SHA-256 ' + (finding.record?.report?.digest || '—')
+        },
+        async loadContentHistory(decision, cursor) {
+            if (this.busy || !this.decisions.includes(decision) || this.contentPages[decision.appRef]?.loading) return
+            const page = { loading: true, items: [], nextCursor: null, error: '' }
+            this.$set(this.contentPages, decision.appRef, page)
+            try {
+                const { data } = await axios.get(generateUrl('/apps/duplicatefinder/api/review/members/' + decision.appRef + '/content-evidence'), { params: { cursor, pageSize: 25 } })
+                if (!this.decisions.includes(decision) || this.contentPages[decision.appRef] !== page) return
+                page.items = data.items; page.nextCursor = data.nextCursor
+            } catch (error) {
+                if (this.decisions.includes(decision) && this.contentPages[decision.appRef] === page) page.error = this.t('duplicatefinder', 'Content observations could not be loaded. The selected observation is retained.')
+            } finally { page.loading = false }
+        },
+        selectContent(decision, finding) {
+            if (this.busy || !this.decisions.includes(decision) || (finding && !this.contentCompatible(decision, finding))) return
+            this.$set(decision, 'contentEvidenceId', finding?.id ?? null)
+            this.$set(this.selectedContent, decision.appRef, finding ? copy(finding) : null)
+            this.saved = false
+        },
         keepOptions(decision) {
             return this.decisions.filter(item => item.action === 'keep' && item.appRef !== decision.appRef
                 && Number.isInteger(item.expected.nodeId) && Number.isInteger(decision.expected.nodeId)
@@ -299,7 +352,7 @@ export default {
 			if (existing) { this.changeAction(existing, action); return }
 			if (this.decisions.length >= 100) { this.error = this.t('duplicatefinder', 'The proposal is limited to 100 explicitly selected references.'); return }
 			this.draftHash = this.hash
-			this.decisions.push({ appRef: member.id, action, keepRef: null, expected: copy(member), evidenceIds: evidence?.entry ? [evidence.entry.id] : [], manualAssessment: { status: 'not_assessed', note: '' }, reason: '', sharePages: [], groupPages: [] })
+			this.decisions.push({ appRef: member.id, action, keepRef: null, contentEvidenceId: null, expected: copy(member), evidenceIds: evidence?.entry ? [evidence.entry.id] : [], manualAssessment: { status: 'not_assessed', note: '' }, reason: '', sharePages: [], groupPages: [] })
 			this.saved = false
 			this.error = ''
 		},
@@ -314,9 +367,11 @@ export default {
 		removeDecision(decision) {
             if (this.busy || !this.decisions.includes(decision)) return
             this.clearKeepLinks(decision.appRef)
+            this.$set(this.selectedContent, decision.appRef, undefined)
+            this.$set(this.contentPages, decision.appRef, undefined)
             this.decisions.splice(this.decisions.indexOf(decision), 1); this.saved = false
         },
-		discard() { this.decisions = []; this.draftHash = ''; this.note = ''; this.predecessor = null; this.planId = null; this.signature = ''; this.retryKey = ''; this.saved = false; this.error = '' },
+		discard() { this.contentPages = {}; this.selectedContent = {}; this.decisions = []; this.draftHash = ''; this.note = ''; this.predecessor = null; this.planId = null; this.signature = ''; this.retryKey = ''; this.saved = false; this.error = '' },
 		async save() {
 			if (this.busy || !this.decisions.length) return
             if (this.decisions.some(item => item.action === 'remove' && !this.validKeepRef(item))) {
@@ -351,7 +406,9 @@ export default {
 			try { const { data } = await axios.get(generateUrl('/apps/duplicatefinder/api/review/plans/' + encodeURIComponent(planId) + '/revisions/' + encodeURIComponent(revision))); this.record = data; this.revisionInput = data.revision } catch (error) { this.error = this.t('duplicatefinder', 'Saved revision could not be loaded.') } finally { this.busy = false }
 		},
 		editRevision() {
-			this.decisions = this.record.members.map(member => ({ appRef: member.appRef, action: member.action, keepRef: member.keepRef ?? null, expected: copy(member.observed || member.expected), evidenceIds: copy(member.evidenceIds || (member.evidence || []).map(entry => entry.id)), manualAssessment: copy(member.manualAssessment), reason: member.reason || '', groupPages: (member.groupMembership?.pages || []).map(entry => ({ query: copy(entry.query), expected: copy(entry.page) })), sharePages: (member.sharing?.pages || []).map(entry => ({ query: copy(entry.query), expected: copy(entry.page) })) })); this.draftHash = this.record.hash; this.note = this.record.note; this.planId = this.record.planId; this.predecessor = this.record.revision; this.signature = ''; this.saved = false
+            this.contentPages = {}; this.selectedContent = {}
+            for (const member of this.record.members) if (member.contentEvidence) this.$set(this.selectedContent, member.appRef, copy(member.contentEvidence))
+			this.decisions = this.record.members.map(member => ({ appRef: member.appRef, action: member.action, keepRef: member.keepRef ?? null, contentEvidenceId: member.contentEvidence?.id ?? null, expected: copy(member.observed || member.expected), evidenceIds: copy(member.evidenceIds || (member.evidence || []).map(entry => entry.id)), manualAssessment: copy(member.manualAssessment), reason: member.reason || '', groupPages: (member.groupMembership?.pages || []).map(entry => ({ query: copy(entry.query), expected: copy(entry.page) })), sharePages: (member.sharing?.pages || []).map(entry => ({ query: copy(entry.query), expected: copy(entry.page) })) })); this.draftHash = this.record.hash; this.note = this.record.note; this.planId = this.record.planId; this.predecessor = this.record.revision; this.signature = ''; this.saved = false
 		},
 		async download() {
 			this.busy = true; this.error = ''

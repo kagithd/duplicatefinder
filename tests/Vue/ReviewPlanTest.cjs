@@ -50,7 +50,7 @@ test('renders escaped selected owners and paths and reviews an exact immutable r
  const mod={exports:{}}
  const calls=[]
  const record={planId:'x',revision:2,creator:'reviewer',createdAt:1,hash:'a'.repeat(64),state:'decision_draft',executable:false,note:'saved',indexActions:[],members:[
- {appRef:41,action:'keep',observed:{owner:'owner-a',indexOwner:'recipient-b',indexPath:'/recipient-b/files/<img src=x>',path:'/recipient-b/files/shared.png',nodeId:12,storageId:'home::owner-a'},reason:'Best copy',manualAssessment:{status:'content_visible',note:'Blue frame',source:{previewId:5,evidenceId:7,scope:'original_first_frame_scaled'}},evidence:[{id:7,createdAt:1,record:{report:{status:'passed',scope:'original_all_exposed_frames',frames_decoded:2,reason:'decoded',checker:{id:'image',version:'1',ruleVersion:'1'}}}}]},
+ {appRef:41,action:'keep',observed:{owner:'owner-a',indexOwner:'recipient-b',indexPath:'/recipient-b/files/<img src=x>',path:'/recipient-b/files/shared.png',nodeId:12,storageId:'home::owner-a'},contentEvidence:{id:23,createdAt:1,record:{report:{digest:'b'.repeat(64)}}},reason:'Best copy',manualAssessment:{status:'content_visible',note:'Blue frame',source:{previewId:5,evidenceId:7,scope:'original_first_frame_scaled'}},evidence:[{id:7,createdAt:1,record:{report:{status:'passed',scope:'original_all_exposed_frames',frames_decoded:2,reason:'decoded',checker:{id:'image',version:'1',ruleVersion:'1'}}}}]},
  {appRef:42,action:'remove',observed:{owner:'owner-b',indexOwner:'owner-b',indexPath:'/owner-b/files/copy.png'},manualAssessment:{status:'not_assessed',note:''},evidence:[]}
  ]}
  new Function('require','module','exports',code)(n=>n==='@nextcloud/axios'?{get:async url=>{calls.push(url);return {data:record}}}:n==='@nextcloud/router'?{generateUrl:x=>x}:(n==='./ReviewPreview.vue'||n==='./ReviewShares.vue')?{render:h=>h('div')}:require(n),mod,mod.exports)
@@ -67,6 +67,10 @@ test('renders escaped selected owners and paths and reviews an exact immutable r
  assert.match(vm.$el.querySelector('pre').textContent,/"executable": false/)
  const summary=vm.$el.querySelector('[data-saved-summary]')
  assert.ok(summary, 'saved proposal must be readable without raw JSON')
+ assert.match(summary.querySelector('[data-saved-content]').textContent, /#23/)
+ assert.match(summary.querySelector('[data-saved-content]').textContent, /b{64}/)
+ assert.match(summary.querySelector('[data-saved-content]').textContent, /Historical bytes only/)
+ assert.equal(vm.$el.querySelectorAll('[data-load-plan-content]').length,1)
  assert.match(summary.textContent,/Keep: 1/)
  assert.match(summary.textContent,/Propose removal: 1/)
  assert.match(summary.textContent,/owner-a/)
@@ -212,4 +216,48 @@ test('keeper options exclude aliases and historical absent links remain unselect
  vm.editRevision();assert.equal(vm.decisions[1].keepRef,null)
  vm.record.members[1].keepRef=1;vm.editRevision();assert.equal(vm.decisions[1].keepRef,1)
  assert.match(vm.keptLabel(vm.record.members[1]),/1/)
+})
+
+test('content history is explicit, bounded and binds only the selected file revision', async()=>{
+ const observed={id:3,indexOwner:'alice',indexPath:'/alice/files/a',owner:'alice',path:'/alice/files/a',nodeId:13,storageId:'home::alice',etag:'v1',size:5,mtime:1}
+ const snapshot={...observed,appRef:3};delete snapshot.id
+ const good={id:21,appRef:3,createdAt:1,record:{report:{status:'read',algorithm:'sha256',digest:'b'.repeat(64),before:snapshot,after:snapshot}}}
+ const stale=JSON.parse(JSON.stringify(good));stale.id=22;stale.record.report.after.etag='old'
+ const calls=[];let payload
+ const vm=component({get:async(u,o)=>{calls.push([u,o]);return {data:{items:[good,stale],nextCursor:20}}},post:async(u,p)=>{payload=p.payload;return {data:{revision:1}}}})
+ vm.choose(observed,'keep',null);const d=vm.decisions[0]
+ assert.equal(typeof vm.loadContentHistory,'function')
+ await vm.loadContentHistory(d,0)
+ assert.deepEqual(calls[0][1].params,{cursor:0,pageSize:25})
+ assert.equal(d.contentEvidenceId,null)
+ vm.selectContent(d,stale);assert.equal(d.contentEvidenceId,null)
+ vm.selectContent(d,good);assert.equal(d.contentEvidenceId,21)
+ good.record.report.digest='c'.repeat(64)
+ assert.equal(vm.selectedContent[3].record.report.digest,'b'.repeat(64))
+ await vm.save();assert.equal(payload.members[0].contentEvidenceId,21)
+ assert.equal('contentEvidence' in payload.members[0],false)
+ vm.selectContent(d,null);assert.equal(d.contentEvidenceId,null);assert.equal(vm.saved,false)
+})
+
+test('content lookup cannot refill a discarded draft and saved edits retain the chosen observation', async()=>{
+ let resolve;const vm=component({get:()=>new Promise(r=>{resolve=r})})
+ vm.choose({id:1},'keep',null);const d=vm.decisions[0]
+ const request=vm.loadContentHistory(d,0);vm.discard();resolve({data:{items:[{id:8}],nextCursor:null}});await request
+ assert.deepEqual(vm.contentPages,{})
+ const finding={id:9,appRef:1,record:{report:{digest:'a'.repeat(64)}}}
+ vm.record={planId:'test',revision:2,hash:vm.hash,note:'',members:[{appRef:1,action:'keep',observed:{id:1},contentEvidence:finding,evidence:[],manualAssessment:{status:'not_assessed',note:''}}]}
+ vm.editRevision();assert.equal(vm.decisions[0].contentEvidenceId,9)
+ assert.deepEqual(vm.selectedContent[1],finding)
+ finding.record.report.digest='b'.repeat(64);assert.equal(vm.selectedContent[1].record.report.digest,'a'.repeat(64))
+})
+
+test('removing and readding a reference clears its old selected content and history', async()=>{
+ const vm=component({get:async()=>({data:{items:[],nextCursor:null}})})
+ vm.choose({id:3},'keep',null)
+ await vm.loadContentHistory(vm.decisions[0],0)
+ vm.selectedContent[3]={id:21};vm.decisions[0].contentEvidenceId=21
+ vm.removeDecision(vm.decisions[0]);vm.choose({id:3},'keep',null)
+ assert.equal(vm.decisions[0].contentEvidenceId,null)
+ assert.equal(vm.selectedContent[3],undefined)
+ assert.equal(vm.contentPages[3],undefined)
 })

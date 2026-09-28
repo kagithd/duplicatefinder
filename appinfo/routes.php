@@ -19,6 +19,7 @@ return [
         ['name' => 'review#reference', 'url' => '/api/review/references/{appRef}', 'verb' => 'GET'],
        ['name' => 'evidence_search#search', 'url' => '/api/review/evidence', 'verb' => 'GET'],
        ['name' => 'evidence#history', 'url' => '/api/review/members/{appRef}/evidence', 'verb' => 'GET'],
+       ['name' => 'content_evidence#history', 'url' => '/api/review/members/{appRef}/content-evidence', 'verb' => 'GET'],
 
        ['name' => 'plan#create', 'url' => '/api/review/plans', 'verb' => 'POST'],
        ['name' => 'plan#listing', 'url' => '/api/review/plans', 'verb' => 'GET'],

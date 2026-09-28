@@ -784,6 +784,25 @@
     "Selected kept file" : "Ausgewählte Behaltedatei",
     "No explicit kept file recorded in this revision" : "In dieser Revision ist keine ausdrückliche Behaltedatei hinterlegt",
     "Select a distinct kept file for every proposed removal before saving. Your draft is retained." : "Wähle für jede vorgeschlagene Entfernung eine andere Datei zum Behalten aus. Dein Entwurf bleibt erhalten.",
-    "The viewer is not available" : "Der Betrachter ist nicht verfügbar"
+    "Check type" : "Prüfart",
+    "Image format check" : "Bildformat prüfen",
+    "Read file bytes and calculate SHA-256" : "Datei vollständig lesen und SHA-256 berechnen",
+    "Content checks read selected files of any type. Image settings are retained but are not used for this request." : "Die Inhaltsprüfung liest ausgewählte Dateien aller Typen. Bildeinstellungen bleiben erhalten, werden für diesen Auftrag aber nicht verwendet.",
+    "Load stored content finding" : "Gespeicherten Inhaltsbefund laden",
+    "Historical content finding" : "Historischer Inhaltsbefund",
+    "File format was not checked. This finding does not authorize removal." : "Das Dateiformat wurde nicht geprüft. Dieser Befund ist keine Freigabe zum Entfernen.",
+    "Content finding could not be loaded or did not match this check." : "Der Inhaltsbefund konnte nicht geladen werden oder passt nicht zu dieser Prüfung.",
+    "File bytes read; format not checked" : "Dateibytes gelesen; Format nicht geprüft",
+    "The viewer is not available" : "Der Betrachter ist nicht verfügbar",
+    "Content observation for this proposal" : "Inhaltsbefund für diesen Vorschlag",
+    "Historical bytes only. File format and current original revision are not verified; no removal authorization." : "Historischer Bytebefund. Dateiformat und aktuelle Originalrevision sind nicht geprüft; keine Entfernungsfreigabe.",
+    "No content observation selected" : "Kein Inhaltsbefund ausgewählt",
+    "Clear content observation" : "Inhaltsbefund abwählen",
+    "Load content observations" : "Inhaltsbefunde laden",
+    "Select this content observation" : "Diesen Inhaltsbefund auswählen",
+    "Does not match the selected file metadata" : "Passt nicht zu den ausgewählten Dateimetadaten",
+    "Older content observations" : "Ältere Inhaltsbefunde",
+    "Saved content observation" : "Gespeicherter Inhaltsbefund",
+    "Content observations could not be loaded. The selected observation is retained." : "Inhaltsbefunde konnten nicht geladen werden. Der ausgewählte Befund bleibt erhalten."
 },"pluralForm" :"nplurals=2; plural=(n != 1);"
 }
