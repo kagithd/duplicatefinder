@@ -86,6 +86,21 @@
 				<li v-for="item in record.items" :key="item.appRef">
 					<p>{{ item.snapshot.indexOwner }} · {{ item.snapshot.indexPath }} · {{ item.appRef }}</p>
 					<p>{{ itemLabel(item.status) }}</p>
+                    <section v-if="canPrepareRetry(item)" data-retry-review>
+                        <p>{{ t('duplicatefinder', 'Pending does not mean never checked. A finding may have been saved before the worker stopped. Review the history before selecting a new check; the old job remains unchanged.') }}</p>
+                        <button data-retry-history type="button" :disabled="busy" @click="loadRetryHistory(item, 0)">{{ t('duplicatefinder', 'Review finding history before retry') }}</button>
+                        <template v-if="retryHistory[item.appRef]">
+                            <p v-if="!retryHistory[item.appRef].items.length">{{ t('duplicatefinder', 'No findings on this history page.') }}</p>
+                            <ul><li v-for="finding in retryHistory[item.appRef].items" :key="finding.id">
+                                <p>#{{ finding.id }} · {{ formatTime(finding.createdAt) }} · {{ itemLabel((finding.record.report || {}).status) }}</p>
+                                <p v-if="record.kind === 'content'">SHA-256: {{ (finding.record.report || {}).digest || '—' }}</p>
+                                <p>{{ t('duplicatefinder', 'Historical observation; not automatically assigned to this job and not a current integrity guarantee.') }}</p>
+                            </li></ul>
+                            <button v-if="retryHistory[item.appRef].nextCursor !== null" type="button" :disabled="busy" @click="loadRetryHistory(item, retryHistory[item.appRef].nextCursor)">{{ t('duplicatefinder', 'Older findings') }}</button>
+                        </template>
+                        <button data-prepare-retry type="button" :disabled="busy || !retryHistory[item.appRef] || selection.some(entry => entry.appRef === item.appRef)" @click="prepareRetry(item)">{{ t('duplicatefinder', 'Add this file to a new check selection') }}</button>
+                        <p>{{ t('duplicatefinder', 'This only prepares a selection. Queue it separately to start a new check, which may create another historical finding.') }}</p>
+                    </section>
                     <button v-if="record.kind === 'content' && item.contentEvidenceId" type="button" data-content-load :disabled="busy" @click="loadContent(item)">{{ t('duplicatefinder', 'Load stored content finding') }}</button>
                     <section v-if="contentFindings[contentKey(item)]" data-content-finding>
                         <p>{{ t('duplicatefinder', 'Historical content finding') }} · {{ item.contentEvidenceId }} · {{ formatTime(contentFindings[contentKey(item)].createdAt) }}</p>
@@ -138,14 +153,60 @@ export default {
 	name: 'ReviewChecks',
 	props: { visibleRefs: { type: Array, default: () => [] } },
 	data() {
-		return { selection: [], kind: 'image', contentFindings: {}, preview: true, signature: '', retryKey: '', busy: false, error: '', jobs: [], nextCursor: null, record: null, detailImages: {}, detailGeneration: 0, detailNotices: {} }
+		return { retryHistory: {}, selection: [], kind: 'image', contentFindings: {}, preview: true, signature: '', retryKey: '', busy: false, error: '', jobs: [], nextCursor: null, record: null, detailImages: {}, detailGeneration: 0, detailNotices: {} }
 	},
 
     watch: {
-        record() { this.contentFindings = {}; this.detailGeneration++; this.detailImages = {}; this.detailNotices = {} },
+        record() { this.retryHistory = {}; this.contentFindings = {}; this.detailGeneration++; this.detailImages = {}; this.detailNotices = {} },
     },
     beforeDestroy() { this.detailGeneration++ },
     methods: {
+        canPrepareRetry(item) {
+            return ['interrupted', 'cancelled', 'completed'].includes(this.record?.state) && this.record.items.includes(item)
+        },
+        async loadRetryHistory(item, cursor) {
+            if (this.busy || !this.canPrepareRetry(item)) return
+            const record = this.record
+            this.$delete(this.retryHistory, item.appRef); this.busy = true; this.error = ''
+            try {
+                const content = record.kind === 'content'
+                const { data } = await axios.get(generateUrl('/apps/duplicatefinder/api/review/members/' + item.appRef + (content ? '/content-evidence' : '/evidence')),
+                    { params: content ? { cursor, pageSize: 25 } : { cursor, limit: 25 } })
+                if (this.record !== record) return
+                if (!Array.isArray(data.items) || data.items.length > 25 || data.items.some(entry => !entry || entry.appRef !== item.appRef || !Number.isSafeInteger(entry.id) || entry.id < 1
+                    || !Number.isSafeInteger(entry.createdAt) || entry.createdAt < 0
+                    || !entry.record || Array.isArray(entry.record) || !entry.record.report || Array.isArray(entry.record.report)
+                    || typeof entry.record.report.status !== 'string' || !entry.record.report.status.length
+                    || (content && entry.record.report.digest != null && (typeof entry.record.report.digest !== 'string' || !/^[a-f0-9]{64}$/.test(entry.record.report.digest))))
+                    || !(data.nextCursor === null || (Number.isSafeInteger(data.nextCursor) && data.nextCursor > 0))) throw Error('Invalid history')
+                this.$set(this.retryHistory, item.appRef, copy(data))
+            } catch (error) {
+                if (this.record === record) this.error = this.t('duplicatefinder', 'Finding history could not be loaded. Retry selection is unavailable.')
+            } finally { this.busy = false }
+        },
+        async prepareRetry(item) {
+            if (this.busy || !this.canPrepareRetry(item) || !this.retryHistory[item.appRef] || this.selection.some(entry => entry.appRef === item.appRef)) return
+            const record = this.record, kind = record.kind || 'image'
+            if (this.selection.length >= 20 || (this.selection.length && (this.kind !== kind || (kind === 'image' && this.preview !== record.preview)))) {
+                this.error = this.t('duplicatefinder', 'The existing check selection has different options or is full. It has not been changed.'); return
+            }
+            this.busy = true; this.error = ''
+            try {
+                const { data } = await axios.get(generateUrl('/apps/duplicatefinder/api/review/references/' + item.appRef))
+                if (this.record !== record) return
+                if (data.id !== item.appRef || data.availability !== 'available'
+                    || !['indexOwner', 'indexPath', 'owner', 'path', 'nodeId', 'storageId', 'etag', 'size', 'mtime'].every(key => data[key] !== undefined && data[key] === item.snapshot[key])) {
+                    this.error = this.t('duplicatefinder', 'File metadata changed. Review its current reference before creating another check.'); return
+                }
+                if (!this.selection.length) { this.kind = kind; this.preview = record.preview }
+                const selected = { appRef: item.appRef, expected: copy(data) }
+                if (kind === 'image' && item.detail) selected.detail = copy(item.detail)
+                this.selection.push(selected)
+                this.signature = ''; this.retryKey = ''
+            } catch (error) {
+                if (this.record === record) this.error = this.t('duplicatefinder', 'Current reference could not be loaded. The check selection is unchanged.')
+            } finally { this.busy = false }
+        },
         kindLabel(kind) { return this.t('duplicatefinder', kind === 'content' ? 'Read file bytes and calculate SHA-256' : 'Image format check') },
         contentKey(item) { return item.appRef + ':' + item.contentEvidenceId },
         async loadContent(item) {
@@ -273,7 +334,7 @@ export default {
 			return this.t('duplicatefinder', { queued: 'Queued — waiting for worker', running: 'Check running', completed: 'Check job completed', cancelled: 'Check job cancelled', interrupted: 'Check job interrupted' }[state] || 'Unknown')
 		},
 		itemLabel(status) {
-			return this.t('duplicatefinder', { read: 'File bytes read; format not checked', pending: 'Not checked', passed: 'All exposed frames decoded', corrupt: 'Decoding failed', unsupported: 'Format not supported', inaccessible: 'Original could not be read', limit: 'Check stopped at a resource limit', stale: 'Original changed during the check', error: 'Check could not be completed' }[status] || 'Unknown finding')
+			return this.t('duplicatefinder', { read: 'File bytes read; format not checked', pending: 'No confirmed job result', passed: 'All exposed frames decoded', corrupt: 'Decoding failed', unsupported: 'Format not supported', inaccessible: 'Original could not be read', limit: 'Check stopped at a resource limit', stale: 'Original changed during the check', error: 'Check could not be completed' }[status] || 'Unknown finding')
 		},
 		formatTime(value) { return new Date(value * 1000).toLocaleString() },
 	},

@@ -112,7 +112,7 @@ test('changed preview option uses a new retry identity and conflicts never repla
 test('job status outcomes stay distinct, escape reference paths and do not trigger background requests',async()=>{
  let calls=0;const vm=mount(async url=>{calls++;return baseGet(url)})
  await tick();const checks=vm.$refs.checks;const before=calls
- for(const [status,label] of [['pending',/Not checked/],['passed',/All exposed frames decoded/],['corrupt',/Decoding failed/],['unsupported',/Format not supported/],['inaccessible',/Original could not be read/],['limit',/resource limit/],['stale',/Original changed/],['error',/could not be completed/]]){
+ for(const [status,label] of [['pending',/No confirmed job result/],['passed',/All exposed frames decoded/],['corrupt',/Decoding failed/],['unsupported',/Format not supported/],['inaccessible',/Original could not be read/],['limit',/resource limit/],['stale',/Original changed/],['error',/could not be completed/]]){
   checks.record={...job('completed'),items:[{appRef:1,snapshot:{...member(),indexPath:'/alice/files/<img src=x onerror=alert(1)>'},status}]};await tick()
   assert.match(checks.$el.querySelector('article ol').textContent,label);assert.equal(checks.$el.querySelector('img'),null)
  }
@@ -191,4 +191,61 @@ test('content finding load binds the exact historical ID and displays hash witho
  finding.id=22;await c.loadContent(c.record.items[0]);await tick()
  assert.ok(c.error);assert.doesNotMatch(c.$el.textContent,/b{64}/)
  dispose(vm)
+})
+
+test('interrupted content retry requires history inspection and queues an explicit new selection',async()=>{
+ const current={...member(),owner:'alice',path:'/alice/files/a',storageId:'home::alice',nodeId:11,etag:'v1',size:4,mtime:10}
+ const snapshot={...current,appRef:1};delete snapshot.id
+ const old={...job('interrupted'),kind:'content',preview:false,items:[{appRef:1,snapshot,status:'pending'}]}
+ const calls=[];const vm=mount(async(url,options)=>{
+  calls.push([url,options]);if(url.includes('/content-evidence'))return {data:{items:[{id:23,appRef:1,createdAt:1,record:{report:{status:'read',digest:'b'.repeat(64)}}}],nextCursor:null}}
+  if(url.endsWith('/references/1'))return {data:current};return baseGet(url)
+ });await tick();const c=vm.$refs.checks;c.record=old;await tick();const item=c.record.items[0]
+ assert.ok(c.$el.querySelector('[data-retry-history]'))
+ await c.prepareRetry(item);assert.equal(c.selection.length,0)
+ await c.loadRetryHistory(item,0);await tick()
+ assert.match(c.$el.textContent,/b{64}/);assert.match(c.$el.textContent,/Pending does not mean/)
+ await c.prepareRetry(item);assert.equal(c.selection.length,1);assert.equal(c.kind,'content')
+ assert.equal(c.selection[0].expected.etag,'v1');assert.equal(c.record.state,'interrupted');assert.equal(c.record.items[0].status,'pending')
+ assert.deepEqual(calls.find(([url])=>url.includes('/content-evidence'))[1].params,{cursor:0,pageSize:25})
+ dispose(vm)
+})
+
+test('retry rejects changed metadata and cannot overwrite a different check selection',async()=>{
+ const current={...member(),owner:'alice',path:'/alice/files/a',storageId:'home::alice',nodeId:11,etag:'v2',size:4,mtime:10}
+ const snapshot={...current,appRef:1,etag:'v1'};delete snapshot.id
+ const vm=mount(async(url)=>url.includes('/content-evidence')?{data:{items:[],nextCursor:null}}:url.endsWith('/references/1')?{data:current}:baseGet(url))
+ await tick();const c=vm.$refs.checks;c.record={...job('interrupted'),kind:'content',preview:false,items:[{appRef:1,snapshot,status:'pending'}]};await tick()
+ const item=c.record.items[0];await c.loadRetryHistory(item,0);await c.prepareRetry(item)
+ assert.equal(c.selection.length,0);assert.match(c.error,/changed/)
+ current.etag='v1';c.choose({...current,id:2});c.kind='image'
+ await c.prepareRetry(item);assert.equal(c.selection.length,1);assert.equal(c.selection[0].appRef,2);assert.equal(c.kind,'image')
+ dispose(vm)
+})
+
+test('malformed history never enables retry or leaves a broken render record',async()=>{
+ const vm=mount(async(url)=>url.includes('/content-evidence')?{data:{items:[{id:23,appRef:1,createdAt:1}],nextCursor:null}}:baseGet(url))
+ await tick();const c=vm.$refs.checks;c.record={...job('interrupted'),kind:'content'};await tick()
+ await c.loadRetryHistory(c.record.items[0],0)
+ assert.equal(c.retryHistory[1],undefined);assert.match(c.error,/could not be loaded/)
+ dispose(vm)
+})
+
+test('retry history rejects malformed rendered fields for image and content jobs',async()=>{
+ for(const kind of ['image','content']) {
+  const valid={id:23,appRef:1,createdAt:1,record:{report:{status:'read'}}}
+  const invalid=[null,{...valid,createdAt:'yesterday'},{...valid,record:[]},{...valid,record:{report:[]}},{...valid,record:{report:{status:{}}}}]
+  if(kind==='content')invalid.push({...valid,record:{report:{status:'read',digest:'invalid'}}})
+  let entries=[valid]
+  const vm=mount(async(url)=>url.endsWith('/evidence')||url.endsWith('/content-evidence')?{data:{items:entries,nextCursor:null}}:baseGet(url))
+  await tick();const c=vm.$refs.checks;c.record={...job('interrupted'),kind};await tick()
+  await c.loadRetryHistory(c.record.items[0],0);await tick();assert.ok(c.retryHistory[1])
+  for(const entry of invalid){
+   entries=[entry];await c.loadRetryHistory(c.record.items[0],0);await tick()
+   assert.equal(c.retryHistory[1],undefined);assert.match(c.error,/could not be loaded/)
+   assert.equal(c.$el.querySelector('[data-prepare-retry]').disabled,true)
+   await c.prepareRetry(c.record.items[0]);assert.equal(c.selection.length,0)
+  }
+  dispose(vm)
+ }
 })

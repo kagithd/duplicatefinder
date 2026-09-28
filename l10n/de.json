@@ -803,6 +803,18 @@
     "Does not match the selected file metadata" : "Passt nicht zu den ausgewählten Dateimetadaten",
     "Older content observations" : "Ältere Inhaltsbefunde",
     "Saved content observation" : "Gespeicherter Inhaltsbefund",
-    "Content observations could not be loaded. The selected observation is retained." : "Inhaltsbefunde konnten nicht geladen werden. Der ausgewählte Befund bleibt erhalten."
+    "Content observations could not be loaded. The selected observation is retained." : "Inhaltsbefunde konnten nicht geladen werden. Der ausgewählte Befund bleibt erhalten.",
+    "No confirmed job result" : "Kein bestätigtes Auftragsergebnis",
+    "Pending does not mean never checked. A finding may have been saved before the worker stopped. Review the history before selecting a new check; the old job remains unchanged." : "Offen bedeutet nicht ungeprüft. Vor dem Workerabbruch kann bereits ein Befund gespeichert worden sein. Prüfe die Historie vor einer neuen Auswahl; der alte Auftrag bleibt unverändert.",
+    "Review finding history before retry" : "Befundhistorie vor Wiederholung ansehen",
+    "No findings on this history page." : "Keine Befunde auf dieser Historienseite.",
+    "Historical observation; not automatically assigned to this job and not a current integrity guarantee." : "Historischer Befund; diesem Auftrag nicht automatisch zugeordnet und kein Nachweis aktueller Integrität.",
+    "Older findings" : "Ältere Befunde",
+    "Add this file to a new check selection" : "Diese Datei für einen neuen Prüfauftrag auswählen",
+    "This only prepares a selection. Queue it separately to start a new check, which may create another historical finding." : "Dies bereitet nur die Auswahl vor. Reihe sie separat ein, um eine neue Prüfung zu starten. Dabei kann ein weiterer historischer Befund entstehen.",
+    "Finding history could not be loaded. Retry selection is unavailable." : "Die Befundhistorie konnte nicht geladen werden. Eine Wiederholung kann noch nicht ausgewählt werden.",
+    "The existing check selection has different options or is full. It has not been changed." : "Die bestehende Prüfauswahl hat andere Optionen oder ist voll. Sie bleibt unverändert.",
+    "File metadata changed. Review its current reference before creating another check." : "Die Dateimetadaten haben sich geändert. Prüfe die aktuelle Fundstelle vor einem neuen Prüfauftrag.",
+    "Current reference could not be loaded. The check selection is unchanged." : "Die aktuelle Fundstelle konnte nicht geladen werden. Die Prüfauswahl bleibt unverändert."
 },"pluralForm" :"nplurals=2; plural=(n != 1);"
 }
