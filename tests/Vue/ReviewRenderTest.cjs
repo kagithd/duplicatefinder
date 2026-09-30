@@ -22,7 +22,7 @@ function mount(get, post = async () => { throw new Error("unexpected mutation") 
     const code = babel.transformSync(sfc.script.content, { babelrc: false, configFile: false, plugins: ['@babel/plugin-transform-modules-commonjs'] }).code
     const module = { exports: {} }
     const fakeRequire = name => {
-        if (name === './components/ReviewComparison.vue' || name === './components/ReviewMissingFindings.vue' || name === './components/ReviewEvidenceSearch.vue' || name === './ReviewShares.vue' || name === './components/ReviewShares.vue' || name === './components/ReviewChecks.vue' || name === './components/ReviewPlan.vue' || name === './components/ReviewPreview.vue' || name === './ReviewPreview.vue') {
+        if (name === './components/ReviewComparison.vue' || name === './components/ReviewMissingFindings.vue' || name === './components/ReviewEvidenceSearch.vue' || name === './ReviewShares.vue' || name === './components/ReviewShares.vue' || name === './components/ReviewChecks.vue' || name === './components/ReviewPlan.vue' || name === './components/ReviewPreview.vue' || name === './components/ReviewWorker.vue' || name === './ReviewPreview.vue') {
             const child = compiler.parseComponent(fs.readFileSync(path.join(__dirname, '../../src', name.startsWith('./components/') ? name : './components/' + name.slice(2)), 'utf8'))
             const childCode = babel.transformSync(child.script.content, { babelrc: false, configFile: false, plugins: ['@babel/plugin-transform-modules-commonjs'] }).code
             const childMod = { exports: {} }
@@ -83,10 +83,27 @@ test('ignores an old member response after selecting a different group', async (
     dispose(vm)
 })
 
+test('group list names an indexed example and keeps the hash in technical details', async () => {
+    const vm = mount(async url => {
+        if (url.endsWith('/members')) return { data: { items: [], nextCursor: null } }
+        return { data: { items: [{ hash: hashA, referenceCount: 3, samplePath: '/alice/files/Photos/urlaub.jpg' }], nextCursor: null } }
+    })
+    await tick()
+    const group = vm.$el.querySelector('[data-group]')
+    assert.match(group.textContent, /urlaub\.jpg/)
+    assert.match(group.textContent, /3 references/)
+    assert.match(group.textContent, /\/alice\/files\/Photos\/urlaub\.jpg/)
+    assert.doesNotMatch(group.textContent, new RegExp(hashA))
+    group.click()
+    await tick()
+    assert.match(vm.$el.querySelector('details.review__hash').textContent, new RegExp(hashA))
+    dispose(vm)
+})
+
 test('next group page replaces the previous page and clears selected members', async () => {
     const vm = mount(async (url, options) => {
         if (url.endsWith('/members')) return { data: { items: [{ id: 1, indexOwner: 'alice', indexPath: '/alice/files/old' }], nextCursor: null } }
-        return { data: options.params.cursor ? { items: [{ hash: hashB, referenceCount: 2 }], nextCursor: null } : { items: [{ hash: hashA, referenceCount: 2 }], nextCursor: hashA } }
+        return { data: options.params.cursor ? { items: [{ hash: hashB, referenceCount: 2, samplePath: '/bob/files/new.txt' }], nextCursor: null } : { items: [{ hash: hashA, referenceCount: 2, samplePath: '/alice/files/old.txt' }], nextCursor: hashA } }
     })
     await tick()
     vm.$el.querySelector('[data-group]').click()
@@ -94,7 +111,7 @@ test('next group page replaces the previous page and clears selected members', a
     vm.$el.querySelector('[data-next-groups]').click()
     await tick()
     assert.equal(vm.$el.querySelectorAll('[data-group]').length, 1)
-    assert.match(vm.$el.textContent, new RegExp(hashB))
+    assert.match(vm.$el.querySelector('[data-group]').textContent, /new\.txt/)
     assert.doesNotMatch(vm.$el.textContent, /\/alice\/files\/old/)
     dispose(vm)
 })
@@ -146,7 +163,7 @@ test('loading state prevents page requests and delayed responses cannot repopula
     vm.$el.querySelector('[data-group]').click()
     await tick()
     assert.equal(vm.$el.querySelector('[data-next-members]').disabled, true)
-    assert.match(vm.$el.querySelector('[role="status"]').textContent, /Loading references/)
+    assert.match(vm.$el.querySelector('.review__members [role="status"]').textContent, /Loading references/)
     vm.$el.querySelector('[data-next-groups]').click()
     await tick()
     resolveMembers({ data: { items: [{ id: 7, indexOwner: 'late', indexPath: '/late/files/a' }], nextCursor: null } })

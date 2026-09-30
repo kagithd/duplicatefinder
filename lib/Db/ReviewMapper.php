@@ -45,6 +45,7 @@ class ReviewMapper
         }
         $qb->select('file_hash')
             ->selectAlias($qb->createFunction('COUNT(*)'), 'reference_count')
+            ->selectAlias($qb->createFunction('MIN(path)'), 'sample_path')
             ->from('duplicatefinder_finfo')
             ->where($qb->expr()->eq('ignored', $qb->createNamedParameter(false, IQueryBuilder::PARAM_BOOL)))
             ->andWhere($qb->expr()->gt('file_hash', $qb->createNamedParameter($cursor)))
@@ -76,6 +77,7 @@ class ReviewMapper
             return array_map(static fn (array $row): array => [
                 'hash' => $row['file_hash'],
                 'referenceCount' => (int)$row['reference_count'],
+                'samplePath' => $row['sample_path'],
             ], $result->fetchAll());
         } finally {
             $result->closeCursor();

@@ -37,8 +37,9 @@
 							class="review__group"
 							:aria-pressed="selectedHash === group.hash"
 							@click="selectGroup(group.hash)">
+							<strong>{{ sampleName(group.samplePath) }}</strong>
 							<span>{{ group.referenceCount }} {{ t('duplicatefinder', 'references') }}</span>
-							<code>{{ group.hash }}</code>
+							<span class="review__sample-path">{{ t('duplicatefinder', 'Indexed example') }}: {{ group.samplePath }}</span>
 						</button>
 					</li>
 				</ul>
@@ -62,9 +63,10 @@
 					{{ t('duplicatefinder', 'Select a group to inspect its references.') }}
 				</p>
 				<template v-else>
-					<p class="review__hash">
-						{{ t('duplicatefinder', 'Stored SHA-256') }}: <code>{{ selectedHash }}</code>
-					</p>
+					<details class="review__hash">
+						<summary>{{ t('duplicatefinder', 'Technical group ID (stored SHA-256)') }}</summary>
+						<code>{{ selectedHash }}</code>
+					</details>
 					<p v-if="membersLoading" role="status">
 						{{ t('duplicatefinder', 'Loading references…') }}
 					</p>
@@ -265,6 +267,9 @@ export default {
 				this.$set(this.evidence, member.id, { loading: false, error: true, entry: null })
 			}
 		},
+		sampleName(path) {
+			return path && path.split('/').filter(Boolean).pop() || this.t('duplicatefinder', 'Unnamed indexed reference')
+		},
 		formatSize(value) {
 			if (value === null || value === undefined || value < 0) return this.t('duplicatefinder', 'Unknown size')
 			const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB']
@@ -395,8 +400,9 @@ h3 { font-weight: 600; }
 .review__group-list, .review__member-list { list-style: none; padding: 0; }
 .review__group { width: 100%; height: auto; text-align: start; padding: 12px; margin: 0 0 8px; border-radius: var(--border-radius); }
 .review__group[aria-pressed="true"] { background: var(--color-primary-element-light); border-color: var(--color-primary-element); }
-.review__group span, .review__group code { display: block; }
-.review__group code, .review__hash code { font-size: 12px; overflow-wrap: anywhere; white-space: normal; }
+.review__group strong, .review__group span { display: block; }
+.review__group strong, .review__sample-path, .review__hash code { overflow-wrap: anywhere; white-space: normal; }
+.review__sample-path, .review__hash code { font-size: 12px; }
 .review__member { padding: 16px 0; border-bottom: 1px solid var(--color-border); }
 .review__evidence { margin: 12px 0; padding: 12px; border-inline-start: 3px solid var(--color-border); }
 .review__evidence h4 { font-weight: 600; }
